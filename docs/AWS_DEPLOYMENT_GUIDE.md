@@ -420,6 +420,79 @@ release. Follow the upgrade runbook and record the resulting digest.
 
 ## Troubleshooting
 
+### Compute stack fails with `ECS Deployment Alarm Detected`
+
+The ECS service is alarm-gated: `owui-open-webui-no-healthy-hosts` is wired to
+the service's deployment configuration with rollback on alarm, so the deployment
+fails whenever that alarm enters `ALARM` while the deployment is in flight. An
+environment-scoped deploy names it `<environment>-open-webui-no-healthy-hosts`.
+
+Read the alarm's own state reason first. It distinguishes the two cases:
+
+```bash
+aws cloudwatch describe-alarms \
+  --profile "$PROFILE" --region "$REGION" \
+  --alarm-names owui-open-webui-no-healthy-hosts \
+  --query 'MetricAlarms[0].{State:StateValue,Reason:StateReason}'
+```
+
+If the reason cites *missing* datapoints, the target group never registered a
+target. `HealthyHostCount` is only reported when a target group has registered
+targets, so the alarm must keep `treatMissingData: NOT_BREACHING` and an
+evaluation window longer than a worst-case cold start — image pull, Open WebUI
+first boot, and the ALB healthy-threshold ramp. Tightening either one makes the
+alarm self-trip on every create-from-nothing deploy, before the first task can
+finish starting.
+
+If the reason cites real zero datapoints, the deployment genuinely produced no
+healthy target. Treat it as an application failure: inspect the stopped tasks'
+`stoppedReason` and the container logs.
+
+```bash
+aws ecs describe-tasks \
+  --profile "$PROFILE" --region "$REGION" --cluster open-webui-cluster \
+  --tasks $(aws ecs list-tasks --profile "$PROFILE" --region "$REGION" \
+    --cluster open-webui-cluster --desired-status STOPPED \
+    --query 'taskArns' --output text) \
+  --query 'tasks[].{Stopped:stoppedReason,Containers:containers[].reason}'
+```
+
+Do this before the stack rolls back. The log group is created with a destroy
+removal policy, so a rollback deletes it and any evidence it held. A task
+stopped by "Scaling activity initiated by (deployment …)" with no logs at all
+was killed by the rollback and did not fail on its own.
+
+### A failed create leaves the stack in `ROLLBACK_FAILED`
+
+A CloudFront VPC origin takes several minutes to reach `Deployed` and cannot be
+deleted while it is still transitioning. When an unrelated resource fails the
+create, CloudFormation cancels the in-flight VPC origin, the distribution's
+create fails with "a crud operation is in progress or failed for the specified
+vpcorigin resource", and the rollback's delete of the origin is refused. The
+stack ends in `ROLLBACK_FAILED`.
+
+A stack whose *initial* create rolled back cannot be updated or continued, and
+`./deploy.sh` has no recovery for this state — it will fail again. Confirm the
+origin has settled, then delete the stack so the next deploy starts clean:
+
+```bash
+aws cloudfront list-vpc-origins --profile "$PROFILE" \
+  --query 'VpcOriginList.Items[].{Id:Id,Status:Status}'
+```
+
+Wait for `Deployed`, then:
+
+```bash
+aws cloudformation delete-stack \
+  --profile "$PROFILE" --region "$REGION" --stack-name OpenWebUI-Compute
+aws cloudformation wait stack-delete-complete \
+  --profile "$PROFILE" --region "$REGION" --stack-name OpenWebUI-Compute
+```
+
+Deleting `OpenWebUI-Compute` is not a data operation — Aurora, Cognito, the
+upload bucket, and the metering table belong to the other stacks. Confirm those
+stacks are still `CREATE_COMPLETE`, then re-run the same deploy command.
+
 ### Sign-in redirects or reports `redirect_mismatch`
 
 Run the full deploy again and compare the final application URL with the

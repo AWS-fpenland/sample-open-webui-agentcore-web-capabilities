@@ -400,20 +400,59 @@ export class ComputeStack extends cdk.Stack {
       defaultAction: elbv2.ListenerAction.forward([targetGroup]),
     });
 
-    // 2026-07-01 incident hardening: alarm-gated deployments. HealthyHostCount
-    // < 1 for 2 consecutive minutes during a deployment (+ bake) triggers
-    // rollback — and the same alarm is the operator's page for the
-    // desired-count-0 / all-tasks-exited outage modes outside deployments.
+    // 2026-07-01 incident hardening: alarm-gated deployments. Zero healthy
+    // targets for a sustained window during a deployment (+ bake) triggers
+    // rollback, catching the mode the circuit breaker is slow on: a task that
+    // boots, registers, then stops serving.
+    //
+    // The window and the missing-data treatment are load-bearing, not taste.
+    // This alarm is armed by ECS for the whole deployment, including the cold
+    // start, and HealthyHostCount is "reported if there are registered
+    // targets" — so a first create sees NO datapoints until the task's IP
+    // registers, then a run of real `0` datapoints until the target passes the
+    // ELB health checks. An earlier revision used 2x1min with
+    // treatMissingData: BREACHING, which made the alarm self-trip ~2 minutes
+    // after creation on an empty target group and failed every create-from-
+    // nothing deploy ("ECS Deployment Alarm Detected") while the first task was
+    // still pulling the image — the rollback then cancelled the in-flight
+    // CloudFront VPC origin mid-CRUD and left the stack ROLLBACK_FAILED.
+    //
+    // So the window must exceed a worst-case cold start, and missing data must
+    // not breach:
+    //   image pull (~2-3 GB from ghcr over NAT, cold)            up to ~4 min
+    //   Open WebUI first boot (migrations, pgvector, warmup)     up to ~4 min
+    //   5 consecutive passing ELB checks at 30s (ALB default)         2.5 min
+    //   ------------------------------------------------------------------
+    //   worst-case time to first healthy target                      ~10 min
+    // 15 consecutive breaching minutes leaves headroom on top of that while
+    // still failing a deployment that never produces a healthy target. The
+    // cost is a correspondingly longer ECS alarm-monitoring window (ECS derives
+    // it from period x evaluationPeriods), which is the intended trade: a
+    // spurious rollback here is far more expensive than a slow one.
+    //
+    // That trade also means this is a deployment gate, not a fast outage page —
+    // it has no alarm action. A page wants a short window on a metric that a
+    // starting task cannot breach, so give it its own alarm rather than
+    // re-tightening this one.
+    //
     // (Must come after the listener attaches the target group to the ALB, or
     // metricHealthyHostCount() throws TargetGroupNeedsAttachedLoad at synth.)
     const healthyHostAlarm = targetGroup
       .metricHealthyHostCount({ period: cdk.Duration.minutes(1), statistic: 'Minimum' })
       .createAlarm(this, 'HealthyHostAlarm', {
         alarmName: `${props.environmentPrefix ?? 'owui'}-open-webui-no-healthy-hosts`,
+        alarmDescription:
+          'No healthy Open WebUI targets behind the internal ALB for 15 consecutive minutes. '
+          + 'Gates ECS deployments (rollback on alarm). Sized to tolerate a cold start: '
+          + 'image pull + first boot + the ELB healthy-threshold ramp.',
         threshold: 1,
         comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
-        evaluationPeriods: 2,
-        treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+        evaluationPeriods: 15,
+        datapointsToAlarm: 15,
+        // An empty target group publishes no datapoints at all. That is a
+        // not-yet-started service, not an outage — treating it as breaching is
+        // what broke create.
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       });
     this.fargateService.enableDeploymentAlarms([healthyHostAlarm.alarmName], {
       behavior: ecs.AlarmBehavior.ROLLBACK_ON_ALARM,

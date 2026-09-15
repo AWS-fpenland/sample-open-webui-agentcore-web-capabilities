@@ -107,6 +107,11 @@ def _payload(tool: dict) -> tuple[dict, str]:
 
 def _requires_attribution_review(tool: dict, payload: dict) -> bool:
     review = "structuredContent" in tool and tool["structuredContent"] != payload
+    review = review or bool(set(tool) - {"isError", "content", "structuredContent"})
+    review = review or bool(set(payload) - {"id", "results"})
+    for result in payload["results"]:
+        if isinstance(result, dict) and set(result) - {"text", "url", "title", "publishedDate"}:
+            review = True
     content = tool.get("content", [])
     if not isinstance(content, list):
         raise SearchContractError("content must be a list")
@@ -147,7 +152,7 @@ def parse_search_response(envelope: dict) -> SearchResponse:
     if tool.get("isError"):
         raise SearchToolError(copy.deepcopy(tool))
     payload, source = _payload(tool)
-    review = _requires_attribution_review(tool, payload)
+    review = _requires_attribution_review(tool, payload) or bool(set(envelope) - {"jsonrpc", "id", "result"})
     records, omitted = [], 0
     for index, result in enumerate(payload["results"]):
         if not isinstance(result, dict) or not isinstance(result.get("text"), str):

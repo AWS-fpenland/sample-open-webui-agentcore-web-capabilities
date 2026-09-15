@@ -28,6 +28,20 @@ def test_input_defaults_and_boundaries():
     assert validate_search_input(" query ", 1)["query"] == " query "
 
 
+@pytest.mark.parametrize("location", ["tool", "payload", "record", "envelope"])
+def test_unknown_nested_attribution_requires_review(location):
+    original = response()
+    destination = {
+        "tool": original["result"],
+        "payload": original["result"]["structuredContent"],
+        "record": original["result"]["structuredContent"]["results"][0],
+        "envelope": original,
+    }[location]
+    destination["attribution"] = {"required": "synthetic attribution marker"}
+    parsed = parse_search_response(original)
+    assert parsed.metadata["requires_attribution_review"] is True
+
+
 @pytest.mark.parametrize("query,maximum", [(None, 10), ("x" * 201, 10), ("x", True), ("x", 1.0), ("x", 0), ("x", 26)])
 def test_invalid_input(query, maximum):
     with pytest.raises(SearchContractError):

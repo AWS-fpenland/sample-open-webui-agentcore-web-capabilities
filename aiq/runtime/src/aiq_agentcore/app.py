@@ -136,6 +136,10 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
             elif ev.type == EventType.CANCELLED:
                 st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
                 terminal_seen = True
+            elif ev.type == EventType.ERROR and ev.data.get("terminal"):
+                err = ev.data.get("error") or {}
+                st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=str(err.get("message", ""))[:1000])
+                terminal_seen = True
             yield stored
             if terminal_seen:
                 break

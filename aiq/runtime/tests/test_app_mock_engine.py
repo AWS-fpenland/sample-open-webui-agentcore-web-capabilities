@@ -121,3 +121,21 @@ def test_invalid_request_shape(principal):
     assert events[0]["type"] == "error" and events[0]["data"]["error"]["code"] == "invalid_request"
     events = asyncio.run(collect({"op": "chat", "bogus": 1}, principal))
     assert events[0]["data"]["error"]["code"] == "invalid_request"
+
+
+def test_terminal_error_marks_job_failed(principal, monkeypatch):
+    from aiq_agentcore.engine_base import Engine, EngineEvent
+    from aiq_agentcore.contracts import EventType
+
+    class FailingEngine(Engine):
+        name = "failing"
+
+        async def run(self, req, cancelled):
+            yield EngineEvent(EventType.STATUS, {"description": "about to fail"})
+            yield EngineEvent(EventType.ERROR, {"error": {"code": "internal", "message": "boom", "retryable": True}, "terminal": True})
+
+    monkeypatch.setattr(appmod, "_engine", FailingEngine())
+    events = asyncio.run(collect({"op": "chat", "mode": "shallow", "messages": [{"role": "user", "content": "x"}]}, principal))
+    assert [e["type"] for e in events][-1] == "error" and events[-1]["data"]["terminal"] is True
+    st = asyncio.run(collect({"op": "status", "job_id": events[0]["job_id"]}, principal))
+    assert st[0]["data"]["status"] == "failed" and st[0]["data"]["error"] == "boom"

@@ -60,7 +60,13 @@ class FakeAdminAPI:
         if request.method == "GET":
             if route not in self.responses:
                 return httpx.Response(404, json={"detail": "not found"})
-            return httpx.Response(200, json=copy.deepcopy(self.responses[route]))
+            result = copy.deepcopy(self.responses[route])
+            if route == "/api/models":
+                result["data"].extend(
+                    {"id": model["id"]} for target, model in self.responses.items()
+                    if target.startswith("/api/v1/models/model?id=") and model.get("is_active")
+                )
+            return httpx.Response(200, json=result)
         assert request.method == "POST"
         if route.endswith("/valves/update"):
             self.responses[route.removesuffix("/update")] = copy.deepcopy(payload)
@@ -227,6 +233,50 @@ def test_apply_changes_only_owned_canary_routes_and_creates_private_native_model
         "region": "us-east-1", "function_arn": ARN, "allowed_subjects": [SUBJECT],
         "search_enabled": True, "fetch_enabled": True, "browser_enabled": True,
     }
+
+
+def test_apply_refreshes_serving_catalog_after_both_model_creations(script, capsys):
+    run(script, "--apply")
+    catalog_reads = [index for index, (method, route, payload) in enumerate(script.api.calls)
+                     if method == "GET" and route == "/api/models"]
+    model_writes = [index for index, (method, route, payload) in enumerate(script.api.calls)
+                    if method == "POST" and route == "/api/v1/models/create"]
+    assert len(catalog_reads) == len(model_writes) == 2
+    assert catalog_reads[0] < min(model_writes) <= max(model_writes) < catalog_reads[1]
+    assert script.api.calls[-1] == ("GET", "/api/models", None)
+    assert json.loads(capsys.readouterr().out)["action"] == "configured"
+
+
+@pytest.mark.parametrize("status,model_ids", [
+    (200, []),
+    (200, ["agentcore-web-haiku-canary"]),
+    (200, ["agentcore-web-responses-canary"]),
+    (503, []),
+])
+def test_failed_catalog_refresh_disables_tool_and_preserves_created_models(script, capsys, status, model_ids):
+    original_handle = script.api.handle
+    catalog_reads = 0
+
+    def handle(request):
+        nonlocal catalog_reads
+        response = original_handle(request)
+        if request.method == "GET" and request.url.path == "/api/models":
+            catalog_reads += 1
+            if catalog_reads == 2:
+                return httpx.Response(status, json={"data": [{"id": model_id} for model_id in model_ids]})
+        return response
+
+    script.monkeypatch.setattr(script.api, "handle", handle)
+    message = "serving catalog" if status == 200 else "HTTP 503"
+    with pytest.raises(script.module.ConfigurationError, match=message):
+        run(script, "--apply")
+    assert catalog_reads == 2
+    assert capsys.readouterr().out == ""
+    assert all("/api/v1/models/model?id=" + model_id in script.api.responses for model_id in script.module.MODELS)
+    valves = script.api.responses[tool_route(script) + "/valves"]
+    assert all(valves[name] is False for name in ("search_enabled", "fetch_enabled", "browser_enabled"))
+    assert script.api.writes[-1][1] == tool_route(script) + "/valves/update"
+    assert all(method != "DELETE" for method, route, payload in script.api.calls)
 
 
 def test_compatible_existing_models_keep_extra_admin_metadata_without_model_updates(script):

@@ -148,6 +148,12 @@ regional prices still require preflight inspection.
 1. Verify caller account/region, exact live task role, image/source pin, existing
    model lanes and recovery posture. This deployment path **does not deploy the
    original Compute/Auth/Gateway stacks** or overwrite their drift.
+   Check the effective VPC quota (`vpc`, `L-F678F1CE`) and current regional VPC
+   count before creating the dedicated Browser VPC. One unused slot is required;
+   request history alone may lag the effective quota. Do not delete unrelated
+   VPCs, reuse the application VPC, or weaken Browser isolation to bypass capacity.
+   After a failed initial deployment, inspect retained-resource existence and
+   resolve the failed stack before retrying the reviewed change set.
 2. Prebuild the pinned search provisioner as described in
    [`gateway/web-search-provisioner/index.py`](../gateway/web-search-provisioner/index.py).
    Synthesize `infra/bin/web-capabilities.ts` with explicit `webCapabilities=on`,

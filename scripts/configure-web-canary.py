@@ -139,6 +139,10 @@ class CanaryConfigurator:
                     raise ConfigurationError("Existing canary model settings differ; preserve and review admin edits")
             else:
                 self.request("POST", "/api/v1/models/create", form)
+        catalog = self.request("GET", "/api/models")
+        self.catalog = {model["id"] for model in catalog.get("data", [])}
+        if not set(self.model_definitions).issubset(self.catalog):
+            raise ConfigurationError("Canary models are missing from the refreshed serving catalog")
         return {"action": "configured", "models": list(self.model_definitions), "existing_connections_unchanged": True,
                 "global_search_unchanged": True, "live_tool_invocation_verified": False}
 

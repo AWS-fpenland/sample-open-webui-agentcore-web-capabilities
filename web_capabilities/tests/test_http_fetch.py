@@ -213,12 +213,25 @@ def test_fulfillment_result_excludes_all_other_upstream_headers():
                                 status=200, redirect_chain=(), location=None)
 
 
+@pytest.mark.parametrize("disposition", ["inline", "INLINE; filename=jquery.js", 'inline; filename="main.css"'])
+def test_inline_assets_are_read_without_forwarding_filename_metadata(disposition):
+    fake = setup(response(headers={"Content-Type": "application/javascript; charset=utf-8",
+                                   "Content-Disposition": disposition}))
+    result = asyncio.run(fake.fetcher.fetch(URL, budget=FetchBudget()))
+    assert result.body == b"hello"
+    assert set(vars(result)) == {"body", "content_type", "final_url", "status", "redirect_chain", "location"}
+
+
 @pytest.mark.parametrize("headers", [
     {}, {"Content-Type": "application/octet-stream"}, {"Content-Type": "image/png"},
     {"Content-Type": "application/pdf"}, {"Content-Type": "application/problem+json"},
     {"Content-Type": "multipart/byteranges"}, {"Content-Type": "text/html, text/plain"},
     {"Content-Type": "text/html", "Content-Disposition": "attachment; filename=x.html"},
-    {"Content-Type": "text/html", "Content-Disposition": "inline; filename=x.html"},
+    {"Content-Type": "text/html", "Content-Disposition": "inline, attachment"},
+    {"Content-Type": "text/html", "Content-Disposition": "attachment"},
+    {"Content-Type": "text/html", "Content-Disposition": "unknown; filename=x.html"},
+    {"Content-Type": "text/html", "Content-Disposition": ""},
+    [("Content-Type", "text/html"), ("Content-Disposition", "inline"), ("Content-Disposition", "attachment")],
     {"Content-Type": "text/html", "Content-Encoding": "gzip"},
     {"Content-Type": "text/html", "Content-Encoding": "br"},
     {"Content-Type": "text/html", "Content-Encoding": "identity, gzip"},

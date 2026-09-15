@@ -92,6 +92,9 @@ does not intercept authenticated `/retrieval/process/*` APIs.
   bodies, and bounds retained entity bytes. It never continues remote requests.
 - Browser uses a fresh session/context, blocks service workers, sockets, popups,
   downloads and non-GET methods, and optionally aborts image/media/font resources.
+  Explicit `Content-Disposition: inline` assets are accepted within the same MIME
+  and byte limits; filename metadata is discarded. Attachments, unknown dispositions
+  and ambiguous duplicate/list headers remain rejected before body reads.
   The browser executes the approved page's JavaScript; no autonomous action agent,
   clicks, forms, uploads, scrolling or authenticated browsing is supplied.
 - Maximum 16 broker requests, 3 MiB retained page bytes, 1 MiB per response,

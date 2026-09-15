@@ -309,7 +309,9 @@ class PublicHTTPSFetcher:
         return PinnedTarget(canonical, host, validated)
 
     def _response_headers(self, response):
-        if _header(response, "Content-Disposition") is not None:
+        disposition = _header(response, "Content-Disposition")
+        if disposition is not None and (
+                disposition.split(";", 1)[0].strip().lower() != "inline" or "," in disposition):
             raise FetchPolicyError("Download responses are forbidden")
         encoding = _header(response, "Content-Encoding")
         if encoding is not None and encoding.lower() != "identity":

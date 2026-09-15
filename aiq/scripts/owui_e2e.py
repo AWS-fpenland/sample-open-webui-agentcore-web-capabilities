@@ -55,15 +55,35 @@ def login(page, url: str, username: str, password: str, out_dir: str) -> dict:
                 page.wait_for_timeout(2500)
                 break
     shot(page, out_dir, "01-login-page.png")
-    user_sel = "input[name='username'], input[type='email'], input#signInFormUsername, input[autocomplete='username']"
-    pw_sel = "input[name='password'], input[type='password'], input#signInFormPassword"
-    page.wait_for_selector(user_sel, timeout=30_000)
-    page.locator(user_sel).first.fill(username)
-    # Managed Login may ask for the username first, then password on the next screen.
-    if page.locator(pw_sel).count() == 0:
+    # Cognito Managed Login renders a React form; attribute names vary, so locate by role/placeholder with fallbacks.
+    page.wait_for_selector("input:not([type='hidden'])", state="attached", timeout=45_000)
+    page.wait_for_timeout(1000)
+    pw = page.locator("input[type='password']")
+    if pw.count() == 0:
+        # username-first flow
+        first = page.locator("input:not([type='hidden']):not([type='password'])").first
+        first.click()
+        first.fill(username)
         page.keyboard.press("Enter")
-        page.wait_for_selector(pw_sel, timeout=30_000)
-    page.locator(pw_sel).first.fill(password)
+        page.wait_for_selector("input[type='password']", timeout=45_000)
+        pw = page.locator("input[type='password']")
+    else:
+        user_inputs = page.locator("input:not([type='hidden']):not([type='password']):not([type='checkbox'])")
+        target = None
+        for i in range(user_inputs.count()):
+            cand = user_inputs.nth(i)
+            try:
+                if cand.is_visible():
+                    target = cand
+                    break
+            except Exception:
+                continue
+        if target is None:
+            raise RuntimeError("no visible username input on the login page")
+        target.click()
+        target.fill(username)
+    pw.first.click()
+    pw.first.fill(password)
     page.keyboard.press("Enter")
     page.wait_for_url(re.compile(re.escape(url.rstrip("/")) + r".*"), timeout=60_000)
     page.wait_for_timeout(4000)
@@ -102,45 +122,70 @@ def pick_model(page, model_id: str):
 
 
 def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, reload_after_s: int | None) -> dict:
-    page.goto(url.rstrip("/") + "/", wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(3000)
-    pick_model(page, model_id)
+    # Open WebUI pre-selects models from the `models` query parameter on a new chat (no DOM fiddling needed).
+    page.goto(url.rstrip("/") + f"/?models={model_id}", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(4000)
+    for sel in ["button:has-text('Okay, Let')", "button:has-text('Okay')", "button:has-text('Got it')"]:
+        try:
+            if page.locator(sel).count():
+                page.locator(sel).first.click(timeout=2000)
+                page.wait_for_timeout(500)
+        except Exception:
+            pass
     shot(page, out_dir, "10-model-selected.png")
-    box = page.locator("#chat-input, textarea#chat-input, div#chat-input[contenteditable='true'], textarea").first
+    selected = page.evaluate("() => [...document.querySelectorAll('button')].map(b => b.innerText.trim()).filter(t => /AI-Q/i.test(t)).slice(0,3)")
+    print(f"# selected-model buttons: {selected}", file=sys.stderr)
+    box = page.locator("#chat-input").first
+    if box.count() == 0:
+        box = page.locator("textarea, div[contenteditable='true']").first
     box.click()
-    box.fill(prompt) if box.evaluate("e => e.tagName") == "TEXTAREA" else box.type(prompt)
-    page.wait_for_timeout(300)
+    tag = box.evaluate("e => e.tagName")
+    if tag == "TEXTAREA":
+        box.fill(prompt)
+    else:
+        page.keyboard.type(prompt)
+    page.wait_for_timeout(500)
     page.keyboard.press("Enter")
     t0 = time.time()
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(3000)
     shot(page, out_dir, "11-sent.png")
+    # Completion is decided by Open WebUI's own task registry (GET /api/tasks/chat/{id}), not by DOM heuristics.
+    m = re.search(r"/c/([0-9a-f-]{36})", page.url)
+    chat_id = m.group(1) if m else None
+    token = page.evaluate("() => localStorage.getItem('token')")
     reloaded = False
+    tasks = None
     while time.time() - t0 < wait_s:
         if reload_after_s and not reloaded and time.time() - t0 > reload_after_s:
             shot(page, out_dir, "12-before-reload.png")
             page.reload(wait_until="domcontentloaded")
-            page.wait_for_timeout(4000)
+            page.wait_for_timeout(5000)
             reloaded = True
             shot(page, out_dir, "13-after-reload.png")
-        # generating state ends when the stop button disappears and the last message has content
-        stop_btn = page.locator("button[aria-label='Stop'], button:has-text('Stop')").count()
-        done = page.evaluate("""() => { const m = document.querySelectorAll('[id^="message-"]'); if (!m.length) return null;
-            const last = m[m.length-1]; return {text: last.innerText.slice(0, 20000)}; }""")
-        if stop_btn == 0 and done and done.get("text") and time.time() - t0 > 6:
-            break
-        page.wait_for_timeout(2000)
+        if chat_id:
+            tasks = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+            ids = (tasks or {}).get("task_ids") or []
+            if time.time() - t0 > 8 and not ids:
+                break
+        page.wait_for_timeout(3000)
     page.wait_for_timeout(1500)
     shot(page, out_dir, "19-answer.png")
-    result = page.evaluate("""() => {
-        const msgs = [...document.querySelectorAll('[id^="message-"]')];
-        const last = msgs[msgs.length-1];
-        const text = last ? last.innerText : '';
-        const links = last ? [...last.querySelectorAll('a[href^="http"]')].map(a => a.href) : [];
-        const statuses = last ? [...last.querySelectorAll('[class*="status"], .text-gray-500')].map(e => e.innerText).filter(Boolean).slice(0, 30) : [];
-        return {url: location.href, text, links, statuses, message_count: msgs.length};
-    }""")
-    result["seconds"] = round(time.time() - t0, 1)
-    result["reloaded"] = reloaded
+    result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "tasks": tasks}
+    if chat_id:
+        chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+        msgs = (((chat_json or {}).get("chat") or {}).get("messages")) or []
+        assistant = [x for x in msgs if x.get("role") == "assistant"]
+        last = assistant[-1] if assistant else {}
+        result["assistant"] = {
+            "content": (last.get("content") or "")[:20000],
+            "done": last.get("done"),
+            "model": last.get("model"),
+            "sources": [{"name": (src.get("source") or {}).get("name"), "url": (src.get("source") or {}).get("url"),
+                         "metadata": src.get("metadata")} for src in (last.get("sources") or [])],
+            "statusHistory": [{"description": st.get("description"), "done": st.get("done")} for st in (last.get("statusHistory") or [])],
+            "error": last.get("error"),
+        }
+        result["message_count"] = len(msgs)
     return result
 
 

@@ -50,7 +50,7 @@ MODES = [
     ("deep", "AI-Q Deep research", "Multi-phase research (planner, researchers, writer) producing a cited report."),
     ("deep_clarify", "AI-Q Deep research (clarify first)", "Asks clarifying questions, then runs deep research after you confirm."),
 ]
-JOB_FOOTER_RE = re.compile(r"aiq-job:(job_[a-f0-9]{32}):([a-z_]+)")
+JOB_FOOTER_RE = re.compile(r"aiq-job:(job_[a-f0-9]{32}):(clarifying|completed|cancelled|running|failed)")
 COMMANDS = {"/cancel", "/status", "/collections", "/help"}
 TERMINAL = {"completed", "cancelled"}
 
@@ -174,7 +174,8 @@ class Pipe:
 
     @staticmethod
     def _footer(job_id: str, state: str, extra: str = "") -> str:
-        return f"\n\n<sub>aiq-job:{job_id}:{state}{(' · ' + extra) if extra else ''}</sub>"
+        # Rendered by Open WebUI's markdown as a small italic line; parsed back by JOB_FOOTER_RE on the next turn.
+        return f"\n\n---\n_aiq-job:{job_id}:{state}{(' · ' + extra) if extra else ''}_"
 
     @staticmethod
     def _source_event(src: dict) -> dict:

@@ -43,7 +43,7 @@ def test_session_ids_meet_runtime_minimum(pipe):
 
 def test_pending_job_footer_parsing(pipe):
     msgs = [{"role": "user", "content": "q"},
-            {"role": "assistant", "content": "Could you clarify?\n\n<sub>aiq-job:job_" + "a" * 32 + ":clarifying</sub>"},
+            {"role": "assistant", "content": "Could you clarify?\n\n---\n_aiq-job:job_" + "a" * 32 + ":clarifying_"},
             {"role": "user", "content": "approve"}]
     assert pipe._pending_job(msgs) == ("job_" + "a" * 32, "clarifying")
     assert pipe._pending_job([{"role": "assistant", "content": "no footer"}]) is None
@@ -106,4 +106,4 @@ def test_render_clarification_ends_turn(pipe):
 
 def test_footer_format(pipe):
     f = pipe._footer("job_" + "c" * 32, "completed", "2 searches")
-    assert f.startswith("\n\n<sub>aiq-job:job_") and f.endswith("· 2 searches</sub>")
+    assert f.startswith("\n\n---\n_aiq-job:job_") and f.endswith("· 2 searches_")

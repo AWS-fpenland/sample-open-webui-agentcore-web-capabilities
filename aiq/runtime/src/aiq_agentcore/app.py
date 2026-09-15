@@ -108,9 +108,9 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
     terminal_seen = False
     try:
         async for ev in engine().run(req, cancelled):
-            # Cooperative cancellation: poll the durable flag at most every 3 s.
+            # Cooperative cancellation: poll the durable flag at most every second.
             now = time.monotonic()
-            if now - last_cancel_check > 3:
+            if now - last_cancel_check > 1:
                 last_cancel_check = now
                 if await asyncio.get_running_loop().run_in_executor(None, st.cancel_requested, tenant, job_id):
                     cancelled.set()

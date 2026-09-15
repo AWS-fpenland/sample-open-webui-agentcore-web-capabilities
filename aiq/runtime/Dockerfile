@@ -23,6 +23,7 @@ ARG NEMO_RELAY_PIN=nemo-relay==0.8.4
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
     UV_LINK_MODE=copy UV_COMPILE_BYTECODE=0 UV_PYTHON_DOWNLOADS=never UV_NO_PROGRESS=1 \
     AIQ_SOURCE_COMMIT=${SOURCE_COMMIT} AIQ_UPSTREAM_REF=${AIQ_UPSTREAM_REF} AIQ_UPSTREAM_REPO=${AIQ_UPSTREAM_REPO}
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=uv /uv /uvx /usr/local/bin/
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -49,9 +50,16 @@ WORKDIR /app
 COPY pyproject.toml README.md upstream.pin ./
 COPY src ./src
 COPY configs ./configs
-RUN uv pip install --python /opt/venv/bin/python --no-deps -e . \
-    && python -c "import aiq_agentcore, aiq_agent, nat, langchain_aws, bedrock_agentcore, sys; print('aiq_agentcore', aiq_agentcore.__version__, 'python', sys.version.split()[0])" \
-    && python -c "import importlib.metadata as m; print({p: m.version(p) for p in ['nvidia-nat-core','langchain-aws','nemo-relay','deepagents','bedrock-agentcore','boto3']})"
+# Adapter dependencies not present in upstream's lock (bedrock-agentcore SDK, PyJWT). uv keeps every
+# already-installed locked version that satisfies the constraints; the printed report shows any change.
+RUN uv pip freeze --python /opt/venv/bin/python > /tmp/before.txt \
+    && uv pip install --python /opt/venv/bin/python "bedrock-agentcore>=1.23.0,<2" "PyJWT[crypto]>=2.9,<3" \
+    && uv pip install --python /opt/venv/bin/python --no-deps -e . \
+    && uv pip freeze --python /opt/venv/bin/python > /tmp/after.txt \
+    && echo "== dependency deviations from upstream lock (only lines that changed) ==" \
+    && (diff <(grep -v '^-e\|^aiq' /tmp/before.txt) <(grep -v '^-e\|^aiq' /tmp/after.txt) || true) \
+    && python -c "import aiq_agentcore, aiq_agentcore.app, aiq_agentcore.engine_aiq, aiq_agentcore.nat_plugins.web_search, aiq_agentcore.nat_plugins.knowledge, aiq_agent, nat, langchain_aws, bedrock_agentcore, sys; print('aiq_agentcore', aiq_agentcore.__version__, 'python', sys.version.split()[0])" \
+    && python -c "import importlib.metadata as m; print({p: m.version(p) for p in ['nvidia-nat-core','langchain-aws','nemo-relay','deepagents','bedrock-agentcore','boto3','pydantic','uvicorn','starlette']})"
 
 # Non-root; AgentCore contract: HTTP :8080 with POST /invocations and GET /ping
 RUN useradd --create-home --uid 10001 aiq && mkdir -p /app/state && chown -R aiq:aiq /app /opt/aiq

@@ -88,3 +88,6 @@ aws-security-scans/
 
 # Compiled Python native extensions
 *.so
+
+# AI-Q standalone CDK app outputs (run-scoped)
+infra/cdk.out.aiq*/

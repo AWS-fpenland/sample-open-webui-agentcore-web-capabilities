@@ -91,6 +91,7 @@ def main() -> int:
     ap.add_argument("--password-env", default="SMOKE_PASSWORD")
     ap.add_argument("--session", default=None, help="runtime session id (>=33 chars); default: random per run")
     ap.add_argument("--token-file", default=None, help="reuse a previously minted token (path); never committed")
+    ap.add_argument("--collection", default=None, help="document collection to include for chat/submit")
     ap.add_argument("op")
     ap.add_argument("args", nargs="*")
     a = ap.parse_args()
@@ -110,7 +111,8 @@ def main() -> int:
     elif op.startswith("chat:") or op.startswith("submit:"):
         kind, mode = op.split(":", 1)
         payload = {"op": kind, "mode": mode, "messages": [{"role": "user", "content": " ".join(args)}],
-                   "client_request_id": f"smoke-{uuid.uuid4().hex[:12]}", "conversation_id": sid}
+                   "client_request_id": f"smoke-{uuid.uuid4().hex[:12]}", "conversation_id": sid,
+                   **({"collection": a.collection} if a.collection else {})}
     elif op == "events":
         payload = {"op": "events", "job_id": args[0], "after": int(args[1]) if len(args) > 1 else 0, "tail": True}
     elif op in ("status", "cancel"):

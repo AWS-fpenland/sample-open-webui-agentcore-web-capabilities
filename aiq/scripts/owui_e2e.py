@@ -121,7 +121,8 @@ def pick_model(page, model_id: str):
     page.wait_for_timeout(600)
 
 
-def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, reload_after_s: int | None) -> dict:
+def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, reload_after_s: int | None,
+         stop_after_s: int | None = None, follow_ups: list[str] | None = None, follow_up_wait: int = 600) -> dict:
     # Open WebUI pre-selects models from the `models` query parameter on a new chat (no DOM fiddling needed).
     page.goto(url.rstrip("/") + f"/?models={model_id}", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(4000)
@@ -154,8 +155,19 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
     chat_id = m.group(1) if m else None
     token = page.evaluate("() => localStorage.getItem('token')")
     reloaded = False
+    stopped = None
     tasks = None
     while time.time() - t0 < wait_s:
+        if stop_after_s and stopped is None and time.time() - t0 > stop_after_s:
+            shot(page, out_dir, "14-before-stop.png")
+            btn = page.locator("button[aria-label='Stop'], button:has-text('Stop')")
+            if btn.count():
+                btn.first.click()
+                stopped = "ui-button"
+            elif chat_id:
+                stopped = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid + '/stop', {method: 'POST', headers: {Authorization: 'Bearer ' + t}}); return 'api:' + r.status; }""", [chat_id, token])
+            page.wait_for_timeout(3000)
+            shot(page, out_dir, "15-after-stop.png")
         if reload_after_s and not reloaded and time.time() - t0 > reload_after_s:
             shot(page, out_dir, "12-before-reload.png")
             page.reload(wait_until="domcontentloaded")
@@ -170,7 +182,30 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         page.wait_for_timeout(3000)
     page.wait_for_timeout(1500)
     shot(page, out_dir, "19-answer.png")
-    result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "tasks": tasks}
+    result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "stopped": stopped,
+              "tasks": tasks, "follow_ups": []}
+    # Optional follow-up turns in the same chat (used for clarification → approval round trips).
+    for i, fu in enumerate(follow_ups or []):
+        page.wait_for_timeout(1500)
+        box = page.locator("#chat-input").first
+        box.click()
+        if box.evaluate("e => e.tagName") == "TEXTAREA":
+            box.fill(fu)
+        else:
+            page.keyboard.type(fu)
+        page.wait_for_timeout(400)
+        page.keyboard.press("Enter")
+        t1 = time.time()
+        page.wait_for_timeout(3000)
+        shot(page, out_dir, f"2{i}-followup-sent.png")
+        while time.time() - t1 < follow_up_wait:
+            tk = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+            if time.time() - t1 > 8 and not ((tk or {}).get("task_ids") or []):
+                break
+            page.wait_for_timeout(3000)
+        page.wait_for_timeout(1500)
+        shot(page, out_dir, f"2{i}-followup-answer.png")
+        result["follow_ups"].append({"prompt": fu, "seconds": round(time.time() - t1, 1)})
     if chat_id:
         chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
         # Open WebUI persists the full tree under chat.history.messages (chat.messages holds only the linear user turns).
@@ -178,6 +213,9 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         msgs = sorted(hist.values(), key=lambda x: x.get("timestamp") or 0) if isinstance(hist, dict) else []
         assistant = [x for x in msgs if x.get("role") == "assistant"]
         last = assistant[-1] if assistant else {}
+        result["assistant_turns"] = [{"content": (x.get("content") or "")[:4000], "done": x.get("done"),
+                                      "sources": len(x.get("sources") or []), "statuses": len(x.get("statusHistory") or [])}
+                                     for x in assistant]
         result["assistant"] = {
             "content": (last.get("content") or "")[:20000],
             "done": last.get("done"),
@@ -204,6 +242,9 @@ def main() -> int:
     ap.add_argument("--prompt", default=None)
     ap.add_argument("--wait", type=int, default=300)
     ap.add_argument("--reload-after", type=int, default=None)
+    ap.add_argument("--stop-after", type=int, default=None, help="press Stop after N seconds (cancel test)")
+    ap.add_argument("--follow-up", action="append", default=[], help="additional message(s) to send after the first answer")
+    ap.add_argument("--follow-up-wait", type=int, default=600)
     ap.add_argument("--session-timeout", type=int, default=1500)
     ap.add_argument("action", choices=["login", "chat"])
     a = ap.parse_args()
@@ -225,7 +266,7 @@ def main() -> int:
                     f.write(info["token"])
                 out["token_saved"] = True
             if a.action == "chat":
-                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after)
+                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after, a.stop_after, a.follow_up, a.follow_up_wait)
             browser.close()
     finally:
         try:

@@ -173,7 +173,9 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
     result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "tasks": tasks}
     if chat_id:
         chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
-        msgs = (((chat_json or {}).get("chat") or {}).get("messages")) or []
+        # Open WebUI persists the full tree under chat.history.messages (chat.messages holds only the linear user turns).
+        hist = ((((chat_json or {}).get("chat") or {}).get("history")) or {}).get("messages") or {}
+        msgs = sorted(hist.values(), key=lambda x: x.get("timestamp") or 0) if isinstance(hist, dict) else []
         assistant = [x for x in msgs if x.get("role") == "assistant"]
         last = assistant[-1] if assistant else {}
         result["assistant"] = {

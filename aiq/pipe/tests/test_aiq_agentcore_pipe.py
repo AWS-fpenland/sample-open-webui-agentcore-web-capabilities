@@ -88,7 +88,8 @@ def test_render_events(pipe):
     assert "".join(out) == "Answer [1]"
     assert state["terminal"] == "completed" and state["cursor"] == 8 and state["sources"] == 1
     assert any("deep" in s[0] for s in statuses) and any("Citations verified" in s[0] for s in statuses)
-    assert "2 searches" in pipe._usage_line(state) and "1 sources" in pipe._usage_line(state)
+    assert any(s[0].startswith("Routing: deep research") for s in statuses)
+    assert "2 searches" in pipe._usage_line(state) and "1 source" in pipe._usage_line(state)
 
 
 def test_render_clarification_ends_turn(pipe):

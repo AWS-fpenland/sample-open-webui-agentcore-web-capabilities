@@ -358,7 +358,9 @@ class Pipe:
             if d.get("replayed"):
                 await status("Reconnected to the existing job — replaying progress…")
         elif t == "route":
-            await status(f"Routed to {d.get('mode', '?')} research" + (f" — {d['reason']}" if d.get("reason") else ""))
+            depth = d.get("depth") or d.get("mode") or "auto"
+            extra = " (clarifier on)" if d.get("clarifier") else ""
+            await status(f"Routing: {depth} research{extra}" + (f" — {d['reason']}" if d.get("reason") else ""))
         elif t == "status":
             await status(str(d.get("description", ""))[:300], done=bool(d.get("done")))
         elif t == "tool.call" and self.valves.SHOW_TOOL_EVENTS:
@@ -409,13 +411,13 @@ class Pipe:
         u = state.get("usage") or {}
         parts = []
         if u.get("searches"):
-            parts.append(f"{u['searches']} searches")
+            parts.append(f"{u['searches']} search{'es' if u['searches'] != 1 else ''}")
         if u.get("retrievals"):
-            parts.append(f"{u['retrievals']} document lookups")
+            parts.append(f"{u['retrievals']} document lookup{'s' if u['retrievals'] != 1 else ''}")
         if u.get("input_tokens") or u.get("output_tokens"):
             parts.append(f"{u.get('input_tokens', 0)}+{u.get('output_tokens', 0)} tokens")
         if state.get("sources"):
-            parts.append(f"{state['sources']} sources")
+            parts.append(f"{state['sources']} source{'s' if state['sources'] != 1 else ''}")
         return " · ".join(parts)
 
     async def _chat(self, bearer: str, sess: str, sess_ctl: str, payload: dict, status, source, mode: str):

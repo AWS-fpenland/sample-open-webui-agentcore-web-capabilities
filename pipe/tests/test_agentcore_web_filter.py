@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import inspect
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -333,8 +334,13 @@ def test_requests_do_not_share_authorization_or_budget(context):
 
 
 def test_pinned_hook_parameter_injection_without_importing_owui(context):
-    source = Path("/tmp/open-webui-v0.11.3/backend/open_webui/utils/filter.py")
-    if not source.exists():
+    configured_source = os.environ.get("OWUI_TEST_FILTER_SOURCE")
+    source = Path(configured_source) if configured_source is not None else Path(
+        "/tmp/open-webui-v0.11.3/backend/open_webui/utils/filter.py"
+    )
+    if not source.is_file():
+        if configured_source is not None:
+            pytest.fail(f"Configured OWUI_TEST_FILTER_SOURCE is not a file: {source}")
         pytest.skip("Pinned source checkout is not available")
     syntax = ast.parse(source.read_text())
     function = next(node for node in syntax.body if isinstance(node, ast.FunctionDef) and node.name == "get_filter_params")

@@ -30,11 +30,22 @@ jobs:
       CDK_CONTEXT_JSON: '{"cloudfrontPrefixListId":"pl-synthetic-offline"}'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Check out pinned upstream hook test source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: open-webui/open-webui
+          ref: 2a960a59fe1dbbd35282f0556b3666d81102e781
+          sparse-checkout: backend/open_webui/utils/filter.py
+          sparse-checkout-cone-mode: false
+          path: .test-sources/open-webui
+          persist-credentials: false
       - name: Install Python contract-test dependencies
         run: |
           python3 -m venv .venv
           .venv/bin/python -m pip install -r web_capabilities/requirements-dev.txt
       - name: Test adapters, tools, configuration, and existing metering
+        env:
+          OWUI_TEST_FILTER_SOURCE: ${{ github.workspace }}/.test-sources/open-webui/backend/open_webui/utils/filter.py
         run: .venv/bin/python -m pytest web_capabilities/tests pipe/tests gateway/web-search-provisioner/test_index.py metering/tests -q
       - name: Install locked infrastructure dependencies
         run: npm --prefix infra ci

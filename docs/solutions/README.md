@@ -16,6 +16,9 @@ Verify every pattern against current source before reusing it.
 - [`admin-console-on-existing-cognito-pool.md`](architecture-patterns/admin-console-on-existing-cognito-pool.md)
   — pattern for adding a separately authorized SPA/API to an existing Cognito
   pool.
+- [`native-tool-loop-managed-web-capabilities.md`](architecture-patterns/native-tool-loop-managed-web-capabilities.md)
+  — lessons on pinned native-loop integration, app-attested identity, managed
+  Browser boundaries, attempt quotas and evidence-driven acceptance.
 
 Current implementations and operator contracts:
 

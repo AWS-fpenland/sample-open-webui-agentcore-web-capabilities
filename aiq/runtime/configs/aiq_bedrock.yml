@@ -1,0 +1,116 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+#
+# NVIDIA AI-Q workflow profile for Amazon Bedrock AgentCore.
+# Derived from upstream configs/config_cli_default.yml + the data_source_registry
+# block of config_web_default_llamaindex.yml, with:
+#   - every LLM role on Amazon Bedrock (`aws_bedrock` -> ChatBedrockConverse; NIM-only
+#     keys removed; max_tokens/region set explicitly — NAT's default max_tokens is 300)
+#   - web search via the AgentCore Gateway managed Web Search connector
+#   - document retrieval via a tenant-filtered Bedrock Knowledge Base
+#   - no Tavily, no Chroma/LlamaIndex, no Dask, no Postgres/SQLite job store
+# Model ids are injected from the runtime environment (all verified available in
+# the target account on 2026-09-15). Values can be overridden per deployment.
+general:
+  use_uvloop: false
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: ${AIQ_NAT_LOG_LEVEL:-WARNING}
+
+llms:
+  router_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_ROUTER:-global.anthropic.claude-haiku-4-5-20251001-v1:0}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.1
+    max_tokens: 1024
+    num_retries: 4
+  clarifier_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_SHALLOW:-global.anthropic.claude-sonnet-5}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.2
+    max_tokens: 2048
+    num_retries: 4
+  shallow_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_SHALLOW:-global.anthropic.claude-sonnet-5}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.2
+    max_tokens: 8192
+    num_retries: 4
+  planner_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_PLANNER:-global.anthropic.claude-sonnet-5}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.2
+    max_tokens: 8192
+    num_retries: 4
+  researcher_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_RESEARCHER:-global.anthropic.claude-sonnet-5}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.2
+    max_tokens: 8192
+    num_retries: 4
+  writer_llm:
+    _type: aws_bedrock
+    model_name: ${AIQ_MODEL_WRITER:-global.anthropic.claude-sonnet-5}
+    region_name: ${AIQ_REGION:-us-east-1}
+    temperature: 0.2
+    max_tokens: 16384
+    num_retries: 4
+
+functions:
+  data_sources:
+    _type: data_source_registry
+    sources:
+      - id: web_search
+        name: Web Search
+        description: Search the public web for current information (AgentCore managed Web Search).
+        tools:
+          - web_search_tool
+      - id: documents
+        name: My documents
+        description: The user's own uploaded document collections (Bedrock Knowledge Base, tenant-filtered).
+        default_enabled: true
+        tools:
+          - knowledge_search
+  web_search_tool:
+    _type: agentcore_web_search
+    max_results: 5
+    max_content_length: 1200
+  knowledge_search:
+    _type: agentcore_knowledge_search
+    top_k: 6
+  intent_classifier:
+    _type: intent_classifier
+    llm: router_llm
+  clarifier_agent:
+    _type: clarifier_agent
+    llm: clarifier_llm
+    max_turns: 3
+  shallow_research_agent:
+    _type: shallow_research_agent
+    llm: shallow_llm
+    max_llm_turns: 10
+    max_tool_iterations: 5
+  deep_research_agent:
+    _type: deep_research_agent
+    enable_citation_verification: true
+    orchestrator_llm: planner_llm
+    source_router_llm: planner_llm
+    planner_llm: planner_llm
+    researcher_llm: researcher_llm
+    writer_llm: writer_llm
+    max_researcher_model_calls: 60
+    max_research_concurrency: 3
+
+workflow:
+  _type: chat_deepresearcher_agent
+  enable_escalation: true
+  enable_clarifier: true
+  use_async_deep_research: false
+  checkpoint_db: ${AIQ_CHECKPOINT_DB:-/app/state/checkpoints.db}

@@ -1,0 +1,4 @@
+# Upstream NVIDIA AI-Q Blueprint pin consumed by the Dockerfile and build script.
+# Default branch `develop` HEAD at research time (2026-09-15). Latest release tag: v2.2.1 (6ec77d91cc5f3ba790729bb8bdc8189a821a61d3).
+AIQ_UPSTREAM_REPO=https://github.com/NVIDIA-AI-Blueprints/aiq.git
+AIQ_UPSTREAM_REF=bf4e67d1564ef8d2ec8f65b5f9001e512befc095

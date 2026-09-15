@@ -269,7 +269,8 @@ class AiqEngine(Engine):
             while not queue.empty():
                 yield queue.get_nowait()
             if task.cancelled() or cancelled.is_set():
-                yield EngineEvent(EventType.CANCELLED, {"reason": "cancel_requested", "seconds": round(time.monotonic() - started, 1)})
+                yield EngineEvent(EventType.CANCELLED, {"reason": "cancel_requested",
+                                                        "seconds": round(time.monotonic() - started, 1)})
                 return
             exc = task.exception()
             if exc is not None:

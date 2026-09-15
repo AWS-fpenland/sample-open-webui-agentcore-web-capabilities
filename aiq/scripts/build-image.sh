@@ -24,19 +24,20 @@ else
   DIRTY=""
 fi
 COMMIT="$(git rev-parse --short=12 HEAD)"
+FULL_COMMIT="$(git rev-parse HEAD)"
 TAG="${COMMIT}${DIRTY}"
 UPSTREAM_REF="$(grep -E '^AIQ_UPSTREAM_REF=' aiq/runtime/upstream.pin | cut -d= -f2)"
 out() { aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
 BUCKET="$(out ArtifactsBucket)"; PROJECT="$(out ImageBuildProject)"
 [[ -n "$BUCKET" && -n "$PROJECT" ]] || { echo "stack $STACK has no ArtifactsBucket/ImageBuildProject outputs" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-# Tracked files only (+ any uncommitted edits when dirty), never node_modules/venvs/private files.
-git ls-files -z aiq | xargs -0 zip -q "$TMP/src.zip" --
+# Committed content only (HEAD), never node_modules/venvs/private files. Uncommitted edits are NOT built.
+git archive --format=zip -o "$TMP/src.zip" HEAD aiq
 aws s3 cp --only-show-errors "$TMP/src.zip" "s3://$BUCKET/source/$TAG.zip" --region "$REGION"
 echo "source: s3://$BUCKET/source/$TAG.zip  tag: $TAG  upstream: $UPSTREAM_REF"
 BUILD_ID="$(aws codebuild start-build --project-name "$PROJECT" --region "$REGION" \
   --source-location-override "$BUCKET/source/$TAG.zip" \
-  --environment-variables-override name=IMAGE_TAG,value="$TAG",type=PLAINTEXT name=SOURCE_COMMIT,value="$COMMIT$DIRTY",type=PLAINTEXT name=AIQ_UPSTREAM_REF,value="$UPSTREAM_REF",type=PLAINTEXT \
+  --environment-variables-override name=IMAGE_TAG,value="$TAG",type=PLAINTEXT name=SOURCE_COMMIT,value="$FULL_COMMIT",type=PLAINTEXT name=AIQ_UPSTREAM_REF,value="$UPSTREAM_REF",type=PLAINTEXT \
   --query 'build.id' --output text)"
 echo "codebuild: $BUILD_ID"
 if [[ "$WAIT" == "1" ]]; then

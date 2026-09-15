@@ -42,6 +42,8 @@ It is the supported consumer deployment path and owns troubleshooting.
 
 ### Maintain the repository
 
+- [Explicit AgentCore web canary](WEB_CANARY_OPERATIONS.md) — scoped native-loop
+  integration, private Lambda, network-isolated Browser, deployment and rollback.
 - [AgentCore web capabilities experiment](AGENTCORE_WEB_CAPABILITIES.md) —
   contract-tested research code, native identity gaps and release gates; not deployed.
 

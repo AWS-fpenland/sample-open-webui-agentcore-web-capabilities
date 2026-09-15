@@ -1,0 +1,46 @@
+name: Web capability contracts
+
+on:
+  pull_request:
+    paths:
+      - 'web_capabilities/**'
+      - 'config/web-canary-url-policy.json'
+      - 'pipe/**'
+      - 'infra/**'
+      - 'gateway/web-search-provisioner/**'
+      - 'scripts/*web-canary*'
+      - '.github/workflows/web-capabilities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-capabilities-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
+      CDK_DEFAULT_ACCOUNT: '111111111111'
+      CDK_DEFAULT_REGION: us-east-1
+      CDK_CONTEXT_JSON: '{"cloudfrontPrefixListId":"pl-synthetic-offline"}'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Python contract-test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r web_capabilities/requirements-dev.txt
+      - name: Test adapters, tools, configuration, and existing metering
+        run: .venv/bin/python -m pytest web_capabilities/tests pipe/tests gateway/web-search-provisioner/test_index.py metering/tests -q
+      - name: Install locked infrastructure dependencies
+        run: npm --prefix infra ci
+      - name: Build and test infrastructure without AWS access
+        run: |
+          npm --prefix infra run build
+          npm --prefix infra test -- --runInBand
+      - name: Check documentation
+        run: node scripts/docs-integrity.mjs

@@ -167,8 +167,8 @@ node scripts/docs-integrity.mjs
 cd infra
 npm ci --ignore-scripts
 npm run build
-CDK_CONTEXT_JSON={cloudfrontPrefixListId:pl-synthetic-offline} \
-  CDK_DEFAULT_ACCOUNT=111111111111 CDK_DEFAULT_REGION=us-east-1 \
+CDK_CONTEXT_JSON='{"cloudfrontPrefixListId":"pl-synthetic-offline"}' \
+  CDK_DEFAULT_ACCOUNT="${SYNTHETIC_CDK_ACCOUNT:?Set a synthetic 12-digit account for offline tests}" CDK_DEFAULT_REGION=us-east-1 \
   AWS_EC2_METADATA_DISABLED=true npm test -- --runInBand
 ```
 

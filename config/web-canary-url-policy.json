@@ -1,0 +1,7 @@
+{
+  "example.com": {"exact": ["/"]},
+  "quotes.toscrape.com": {
+    "exact": ["/js/", "/static/jquery.js", "/static/bootstrap.min.css", "/static/main.css"]
+  },
+  "docs.aws.amazon.com": {"prefix": ["/bedrock-agentcore/latest/devguide/"]}
+}

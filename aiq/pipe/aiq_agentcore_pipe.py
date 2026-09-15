@@ -432,6 +432,7 @@ class Pipe:
         except (asyncio.CancelledError, GeneratorExit):
             if state.get("job_id"):
                 self._schedule_cancel(bearer, sess_ctl, state["job_id"])
+                self._schedule_status(status, f"Stopped — research job cancelled (aiq-job:{state['job_id']}:cancelled)")
             raise
         except Exception as e:  # noqa: BLE001
             yield f"\n\n**AI-Q request failed:** {str(e)[:300]}"
@@ -460,7 +461,16 @@ class Pipe:
             yield self._footer(job_id, st, self._usage_line(state))
         except (asyncio.CancelledError, GeneratorExit):
             self._schedule_cancel(bearer, sess_ctl, job_id)
+            self._schedule_status(status, f"Stopped — research job cancelled (aiq-job:{job_id}:cancelled)")
             raise
+
+    def _schedule_status(self, status, text: str) -> None:
+        """Best-effort persisted status after a Stop: emitted from a fresh task because the pipe's own task is
+        being cancelled (status events are persisted to the message by Open WebUI)."""
+        try:
+            asyncio.get_running_loop().create_task(status(text, True))
+        except RuntimeError:
+            pass
 
     def _schedule_cancel(self, bearer: str, sess_ctl: str, job_id: str) -> None:
         async def _cancel():

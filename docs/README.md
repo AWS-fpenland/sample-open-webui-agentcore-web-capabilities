@@ -42,6 +42,9 @@ It is the supported consumer deployment path and owns troubleshooting.
 
 ### Maintain the repository
 
+- [AgentCore web capabilities experiment](AGENTCORE_WEB_CAPABILITIES.md) —
+  contract-tested research code, native identity gaps and release gates; not deployed.
+
 - [`infra/README.md`](../infra/README.md) — CDK composition, context, and
   infrastructure validation.
 - [`pipe/README.md`](../pipe/README.md) — runtime-seeded Open WebUI integration

@@ -319,12 +319,16 @@ class Pipe:
             approval = "reject" if lowered in {"cancel", "reject", "stop", "no"} else "approve"
             payload = {"op": "approve", "job_id": job_id, "approval": approval, "messages": messages,
                        "revision": None if lowered in approve_words else question, "collection": collection}
+            resume_after = 0
             async for ev in self._invoke(bearer, sess_job, payload, 120):
                 if ev.get("type") == "error":
                     return f"Could not resume job `{job_id}`: {(ev.get('data') or {}).get('error', {}).get('message')}"
                 if ev.get("type") == "cancelled":
                     return f"Research job `{job_id}` was cancelled." + self._footer(job_id, "cancelled")
-            return self._tail(bearer, sess_tail, sess_ctl, job_id, 0, status, source, mode)
+                if ev.get("type") == "job.accepted" and isinstance(ev.get("seq"), int):
+                    resume_after = ev["seq"]  # tail only what the resumed run produces, not the replayed pause
+            await status("Clarification received — resuming deep research…")
+            return self._tail(bearer, sess_tail, sess_ctl, job_id, resume_after, status, source, mode)
 
         if not question:
             return "Ask a research question, or attach documents to build a collection."

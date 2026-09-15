@@ -108,3 +108,41 @@ def test_render_clarification_ends_turn(pipe):
 def test_footer_format(pipe):
     f = pipe._footer("job_" + "c" * 32, "completed", "2 searches")
     assert f.startswith("\n\n---\n_aiq-job:job_") and f.endswith("· 2 searches_")
+
+
+def test_resume_tails_after_pause_cursor(pipe, monkeypatch):
+    """After approving a clarification, the pipe must tail from the seq returned by the runtime (past the replayed
+    pause events), otherwise the old question is re-rendered and the report is never shown."""
+    calls = []
+
+    async def fake_invoke(bearer, session_id, payload, timeout_s=None):
+        calls.append(payload)
+        if payload["op"] == "approve":
+            yield {"type": "job.accepted", "seq": 14, "job_id": payload["job_id"], "data": {"resumed": True}}
+        elif payload["op"] == "events":
+            assert payload["after"] == 14
+            yield {"type": "report", "seq": 20, "job_id": payload["job_id"], "data": {"text": "The report"}}
+            yield {"type": "completed", "seq": 21, "job_id": payload["job_id"], "data": {}}
+
+    monkeypatch.setattr(pipe, "_invoke", fake_invoke)
+
+    async def bearer(*a, **k):
+        return "tok"
+
+    monkeypatch.setattr(pipe, "_bearer", bearer)
+    job = "job_" + "d" * 32
+    body = {"model": "aiq_agentcore.deep_clarify", "messages": [
+        {"role": "user", "content": "Tell me about performance"},
+        {"role": "assistant", "content": "Which area?\n\n---\n_aiq-job:" + job + ":clarifying_"},
+        {"role": "user", "content": "S3 Vectors latency"}]}
+
+    async def run():
+        out = await pipe.pipe(body, __user__={"id": "u1"}, __metadata__={"chat_id": "c1", "message_id": "m2"}, __event_emitter__=None)
+        text = ""
+        async for piece in out:
+            text += piece
+        return text
+
+    text = asyncio.run(run())
+    assert calls[0]["op"] == "approve" and calls[0]["revision"] == "S3 Vectors latency"
+    assert "The report" in text and f"aiq-job:{job}:completed" in text

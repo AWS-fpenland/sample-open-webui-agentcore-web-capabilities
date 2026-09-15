@@ -214,7 +214,9 @@ class JobStore:
             rec = await loop.run_in_executor(None, self.get_job, tenant_key, job_id)
             if rec is None:
                 return
-            if rec.status.terminal and rec.last_seq <= cursor:
+            # Stop tailing once everything is read and the job is terminal OR paused for the user (clarifying):
+            # the next user turn resumes it and the client tails again from its cursor.
+            if (rec.status.terminal or rec.status == JobStatus.CLARIFYING) and rec.last_seq <= cursor:
                 return
             if time.monotonic() > deadline:
                 return

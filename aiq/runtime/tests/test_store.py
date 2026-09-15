@@ -62,3 +62,17 @@ def test_documents_scoped_by_tenant(store, principal, other_principal):
     assert store.list_documents(other_principal.tenant_key) == []
     assert store.delete_collection(principal.tenant_key, "coll") == 2  # object + metadata sidecar
     assert store.list_documents(principal.tenant_key) == []
+
+
+def test_tail_stops_when_paused_for_clarification(store, principal):
+    rec, _ = store.create_job(tenant_key=principal.tenant_key, mode=ResearchMode.DEEP_CLARIFY, question="q",
+                              runtime_session_id=None, client_request_id=None, conversation_id=None)
+    store.append_event(principal.tenant_key, rec.job_id, EventType.CLARIFICATION, {"question": "which year?"})
+    store.append_event(principal.tenant_key, rec.job_id, EventType.PLAN_APPROVAL_REQUIRED, {"prompt": "approve?"})
+    store.update_job(principal.tenant_key, rec.job_id, status=JobStatus.CLARIFYING.value)
+
+    async def collect():
+        return [e.type async for e in store.tail_events(principal.tenant_key, rec.job_id, after=0, poll_seconds=0.05,
+                                                        idle_timeout=5)]
+
+    assert asyncio.run(collect()) == [EventType.CLARIFICATION, EventType.PLAN_APPROVAL_REQUIRED]

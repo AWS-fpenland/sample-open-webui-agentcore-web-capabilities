@@ -414,6 +414,16 @@ export class AiqStack extends cdk.Stack {
         `arn:aws:bedrock:${region}:${account}:inference-profile/*`,
       ],
     }));
+    // First invocation of a third-party (Anthropic) model in an account triggers an automatic AWS Marketplace
+    // subscription; Bedrock requires the *invoking* role to hold these two actions or it fails with
+    // "Your AWS Marketplace subscription for this model cannot be completed" (observed live 2026-09-15). The actions
+    // do not support resource-level scoping; restrict further with aws-marketplace:ProductId once the model product
+    // ids are pinned (follow-up). Reference: repost.aws/knowledge-center/bedrock-resolve-marketplace-permission
+    runtimeRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'BedrockModelActivation',
+      actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe'],
+      resources: ['*'],
+    }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({
       sid: 'KnowledgeBase',
       actions: ['bedrock:Retrieve', 'bedrock:StartIngestionJob', 'bedrock:GetIngestionJob', 'bedrock:ListIngestionJobs', 'bedrock:GetKnowledgeBase'],

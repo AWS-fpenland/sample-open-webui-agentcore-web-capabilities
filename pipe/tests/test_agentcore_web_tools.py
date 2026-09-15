@@ -342,7 +342,7 @@ def test_fetch_returns_plain_text_provenance_and_truncation_without_manual_citat
     output = call(wrapper, "fetch_url", render=render, __event_emitter__=emitter)
     assert isinstance(output, str)
     assert output == ("Title: Public page\nSource: https://example.com/page\n"
-                      f"Capability: {operation}\nTruncated: True\n\nPublic page content\n\n"
+                      f"Capability: {operation}\nOptional resources omitted: 0 (rendering may differ)\nTruncated: True\n\nPublic page content\n\n"
                       'Links (not yet fetched): ["https://example.com/next"]')
     payload = json.loads(wrapper.fake.invocations[0]["Payload"])
     assert payload["operation"] == operation

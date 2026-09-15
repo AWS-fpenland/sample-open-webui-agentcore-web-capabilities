@@ -108,6 +108,7 @@ class Tools:
                 output = (f"Title: {document.get('title') or document['final_url']}\n"
                           f"Source: {document['final_url']}\n"
                           f"Capability: {document.get('source_capability')}\n"
+                          f"Optional resources omitted: {document.get('blocked_optional_resources', 0)} (rendering may differ)\n"
                           f"Truncated: {bool(document.get('truncated'))}\n\n{document['text']}\n\n"
                           f"Links (not yet fetched): {json.dumps(document.get('links', []))}")
             succeeded = True

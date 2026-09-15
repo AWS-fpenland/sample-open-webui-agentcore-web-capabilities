@@ -11,6 +11,7 @@ import asyncio
 from web_capabilities.browser import BrowserError, BrowserFetcher, BrowserPolicyError
 from web_capabilities.http_fetch import FetchBudget, PublicHTTPSFetcher
 from web_capabilities.documents import utf8_content_type
+from web_capabilities.url_policy import URLPolicyError
 
 
 EXTRACT = """limit => {
@@ -70,7 +71,14 @@ class BrokeredBrowserFetcher(BrowserFetcher):
                     state["blocked_subresources"] += 1
                     await route.abort("blockedbyclient")
                     return
-                target = self.policy.validate(request.url)
+                try:
+                    target = self.policy.validate(request.url)
+                except URLPolicyError:
+                    if request.resource_type != "stylesheet":
+                        raise
+                    state["blocked_subresources"] += 1
+                    await route.abort("blockedbyclient")
+                    return
                 async with semaphore:
                     response = await self.broker.fetch(target, budget=budget, follow_redirects=False)
                 if response.status != 200 or response.final_url != target:

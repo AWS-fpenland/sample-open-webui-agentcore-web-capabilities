@@ -95,6 +95,10 @@ does not intercept authenticated `/retrieval/process/*` APIs.
   Explicit `Content-Disposition: inline` assets are accepted within the same MIME
   and byte limits; filename metadata is discarded. Attachments, unknown dispositions
   and ambiguous duplicate/list headers remain rejected before body reads.
+  Out-of-policy stylesheets are aborted without DNS or HTTP fetching, rather than
+  failing the whole document; approved stylesheets still pass through the broker.
+  The Tool reports omitted optional resources and warns that rendering may differ.
+  Main navigation, scripts and non-GET requests do not receive this exception.
   The browser executes the approved page's JavaScript; no autonomous action agent,
   clicks, forms, uploads, scrolling or authenticated browsing is supplied.
 - Maximum 16 broker requests, 3 MiB retained page bytes, 1 MiB per response,

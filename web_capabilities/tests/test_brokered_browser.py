@@ -281,7 +281,7 @@ def test_denied_methods_are_honest_errors(method):
     fake.assert_cleanup()
 
 
-@pytest.mark.parametrize("resource_type", ["image", "media", "font"])
+@pytest.mark.parametrize("resource_type", ["image", "media", "font", "stylesheet"])
 def test_optional_resources_are_aborted_with_explicit_partial_metadata(resource_type):
     fake = BrowserHarness(routes=[route_spec(), route_spec("https://external.invalid/asset", resource_type=resource_type)])
     document = asyncio.run(fake.fetcher.load(URL))
@@ -290,12 +290,20 @@ def test_optional_resources_are_aborted_with_explicit_partial_metadata(resource_
     fake.assert_routes_closed()
 
 
-@pytest.mark.parametrize("resource_type", ["image", "media", "font"])
+@pytest.mark.parametrize("resource_type", ["image", "media", "font", "stylesheet"])
 @pytest.mark.parametrize("method", ["POST", "HEAD", "PUT"])
 def test_optional_resource_label_cannot_hide_a_denied_method(resource_type, method):
     fake = BrowserHarness(routes=[route_spec(), route_spec(method=method, resource_type=resource_type)])
     with pytest.raises(BrowserError):
         asyncio.run(fake.fetcher.load(URL))
+    fake.assert_routes_closed()
+
+
+def test_approved_stylesheets_are_brokered_instead_of_omitted():
+    fake = BrowserHarness(routes=[route_spec(), route_spec("https://example.com/docs/main.css", resource_type="stylesheet")])
+    document = asyncio.run(fake.fetcher.load(URL))
+    assert document["blocked_optional_resources"] == 0 and document["broker_requests"] == 2
+    fake.runs[0].routes[1].fulfill.assert_awaited_once()
     fake.assert_routes_closed()
 
 

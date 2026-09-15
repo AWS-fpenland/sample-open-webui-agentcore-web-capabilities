@@ -183,6 +183,11 @@ export class AiqStack extends cdk.Stack {
       }),
     });
     this.repository.grantPullPush(imageBuild);
+    imageBuild.addToRolePolicy(new iam.PolicyStatement({
+      sid: 'DescribeBuiltImage',
+      actions: ['ecr:DescribeImages'],
+      resources: [this.repository.repositoryArn],
+    }));
     this.artifacts.grantReadWrite(imageBuild);
 
     // ── Durable state ─────────────────────────────────────────────────────

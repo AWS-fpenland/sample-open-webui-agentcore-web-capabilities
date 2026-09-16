@@ -34,7 +34,7 @@ from smoke import mint_token, runtime_arn  # noqa: E402
 JUDGE_PROMPT = """You are grading a research answer. Score two dimensions from 1 (poor) to 5 (excellent).
 groundedness: are the claims supported by the listed sources (titles/URLs) and cited with [n] markers?
 quality: is the answer correct, complete for the question, well structured and free of speculation?
-Return ONLY JSON: {"groundedness": <int>, "quality": <int>, "rationale": "<one sentence>"}.
+Return ONLY JSON: {{"groundedness": <int>, "quality": <int>, "rationale": "<one sentence>"}}.
 
 QUESTION:
 {question}

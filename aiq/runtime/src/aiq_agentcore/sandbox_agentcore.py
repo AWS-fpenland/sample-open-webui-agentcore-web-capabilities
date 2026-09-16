@@ -70,10 +70,10 @@ def _settings() -> dict[str, Any]:
         "identifier": os.environ.get("AIQ_AGENTCORE_CI_IDENTIFIER", "aws.codeinterpreter.v1"),
         "region": (os.environ.get("AIQ_AGENTCORE_CI_REGION") or os.environ.get("AIQ_REGION")
                    or os.environ.get("AWS_REGION", "us-east-1")),
-        "network_mode": os.environ.get("AIQ_AGENTCORE_CI_NETWORK_MODE", "PUBLIC").upper(),
+        "network_mode": os.environ.get("AIQ_AGENTCORE_CI_NETWORK_MODE", "SANDBOX").upper(),
         "session_timeout": int(os.environ.get("AIQ_AGENTCORE_CI_SESSION_TIMEOUT_SECONDS", "3600")),
         "sync_cap": int(os.environ.get("AIQ_AGENTCORE_CI_SYNC_EXECUTE_CAP_SECONDS", "840")),
-        "bootstrap_packages": [p for p in os.environ.get("AIQ_AGENTCORE_CI_PACKAGES", "tabulate").split(",") if p.strip()],
+        "bootstrap_packages": [p for p in os.environ.get("AIQ_AGENTCORE_CI_PACKAGES", "").split(",") if p.strip()],
     }
 
 
@@ -130,7 +130,7 @@ class AgentCoreCodeInterpreterSandbox:
         sc = res["structured"]
         stdout = str(sc.get("stdout") or "")
         stderr = str(sc.get("stderr") or "")
-        output = stdout if not stderr else (stdout + ("\n" if stdout else "") + stderr)
+        output = stdout if not stderr else (stdout + ("" if (not stdout or stdout.endswith("\n")) else "\n") + stderr)
         if not output:
             output = res["text"]
         exit_code = sc.get("exitCode")
@@ -144,52 +144,51 @@ class AgentCoreCodeInterpreterSandbox:
         return ExecuteResponse(output=output, exit_code=int(exit_code), truncated=truncated)
 
     def upload_files(self, files):
+        """Write bytes to absolute paths through a python shim (`writeFiles` only accepts session-relative paths)."""
         from deepagents.backends.protocol import FileUploadResponse
 
         out = []
+        code = ("import base64,os,sys\np=sys.argv[1]\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\n"
+                "open(p,'wb').write(base64.b64decode(sys.stdin.read()))\nprint('ok')")
         for path, content in files:
+            b64 = base64.b64encode(content).decode()
+            # stdin via heredoc keeps very large payloads off the argv limit
+            cmd = f"python3 -c {shlex.quote(code)} {shlex.quote(path)} <<'AIQ_B64_EOF'\n{b64}\nAIQ_B64_EOF"
             try:
-                res = self._invoke("writeFiles", {"content": [{"path": path, "blob": content}]})
-                if res["is_error"]:
-                    raise RuntimeError(res["text"][:200] or "writeFiles failed")
-                out.append(FileUploadResponse(path=path))
-            except Exception as e:  # noqa: BLE001 — fall back to a python shim (absolute-path safe)
-                log.debug("writeFiles fallback for %s (%s)", path, e.__class__.__name__)
-                b64 = base64.b64encode(content).decode()
-                code = ("import base64,os,sys\np=sys.argv[1]\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\n"
-                        "open(p,'wb').write(base64.b64decode(sys.argv[2]))\nprint('ok')")
-                res2 = self._invoke("executeCommand", {"command": f"python3 -c {shlex.quote(code)} {shlex.quote(path)} {b64}"})
-                ok = not res2["is_error"] and int(res2["structured"].get("exitCode", 0) or 0) == 0
-                out.append(FileUploadResponse(path=path, error=None if ok else "invalid_path"))
+                res = self._invoke("executeCommand", {"command": cmd})
+                ok = not res["is_error"] and int(res["structured"].get("exitCode", 0) or 0) == 0
+            except Exception as e:  # noqa: BLE001
+                log.debug("upload shim failed for %s (%s)", path, e.__class__.__name__)
+                ok = False
+            out.append(FileUploadResponse(path=path, error=None if ok else "invalid_path"))
         return out
 
     def download_files(self, paths):
+        """Read absolute paths through a python shim that prints base64 (`readFiles` rejects absolute paths)."""
         from deepagents.backends.protocol import FileDownloadResponse
 
         out = []
+        code = ("import base64,os,sys\np=sys.argv[1]\n"
+                "if not os.path.exists(p): print('__AIQ_NOT_FOUND__'); sys.exit(0)\n"
+                "if os.path.isdir(p): print('__AIQ_IS_DIR__'); sys.exit(0)\n"
+                "sys.stdout.write(base64.b64encode(open(p,'rb').read()).decode())")
         for path in paths:
             try:
-                res = self._invoke("readFiles", {"paths": [path]})
+                res = self._invoke("executeCommand", {"command": f"python3 -c {shlex.quote(code)} {shlex.quote(path)}"})
             except Exception as e:  # noqa: BLE001
-                log.debug("readFiles failed for %s (%s)", path, e.__class__.__name__)
+                log.debug("download shim failed for %s (%s)", path, e.__class__.__name__)
                 out.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
                 continue
-            content: bytes | None = None
-            for r in res["resources"]:
-                if r.get("blob") is not None:
-                    blob = r["blob"]
-                    content = blob if isinstance(blob, bytes) else base64.b64decode(blob)
-                    break
-                if r.get("text") is not None:
-                    content = str(r["text"]).encode("utf-8")
-                    break
-            if content is None:
-                out.append(FileDownloadResponse(path=path, content=None,
-                                                error="file_not_found" if res["is_error"] or not res["text"] else None))
-                if out[-1].error is None:
-                    out[-1] = FileDownloadResponse(path=path, content=res["text"].encode("utf-8"))
+            stdout = (res["structured"].get("stdout") or res["text"] or "").strip()
+            if res["is_error"] or "__AIQ_NOT_FOUND__" in stdout:
+                out.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
+            elif "__AIQ_IS_DIR__" in stdout:
+                out.append(FileDownloadResponse(path=path, content=None, error="is_directory"))
             else:
-                out.append(FileDownloadResponse(path=path, content=content))
+                try:
+                    out.append(FileDownloadResponse(path=path, content=base64.b64decode("".join(stdout.split()))))
+                except Exception:  # noqa: BLE001
+                    out.append(FileDownloadResponse(path=path, content=None, error="invalid_path"))
         return out
 
     def close(self) -> None:
@@ -216,6 +215,20 @@ def build_provider_class():
             self._settings = _settings()  # no AWS call here (compliance: constructor is side-effect free)
             self._client = None
             self._session_ref = None
+            log.info(json.dumps({"event": "sandbox.provider.constructed", "job_id": job_id, "workdir": str(self.workdir),
+                                 "artifact_dir": str(self.artifact_dir), "identifier": self._settings["identifier"]}))
+
+        def execute(self, command: str, *, timeout: int | None = None):
+            log.info(json.dumps({"event": "sandbox.execute", "job_id": self.job_id, "chars": len(command or ""),
+                                 "timeout": timeout, "preview": (command or "")[:120]}))
+            try:
+                result = super().execute(command, timeout=timeout)
+            except Exception as e:  # noqa: BLE001 — log then re-raise (deepagents turns it into a tool error)
+                log.error(json.dumps({"event": "sandbox.execute.failed", "job_id": self.job_id, "error": repr(e)[:300]}))
+                raise
+            log.info(json.dumps({"event": "sandbox.execute.done", "job_id": self.job_id, "exit": result.exit_code,
+                                 "out_chars": len(result.output or "")}))
+            return result
 
         @property
         def capabilities(self) -> SandboxCapabilities:
@@ -253,6 +266,15 @@ def build_provider_class():
                                  "identifier": s["identifier"]}))
             self._emit_event({"type": "sandbox.session", "data": {"status": "started", "session_id": resp["sessionId"],
                                                                   "provider": self.provider_name}})
+            try:
+                from .run_context import get_run_context
+
+                ctx = get_run_context()
+                if ctx:
+                    ctx.note("status", {"description": "Sandbox session started (AgentCore Code Interpreter)", "done": False,
+                                        "tool": "sandbox"})
+            except Exception:  # noqa: BLE001
+                pass
             return session
 
         def _prepare_workspace(self, session) -> None:  # mkdir + best-effort skill dependencies

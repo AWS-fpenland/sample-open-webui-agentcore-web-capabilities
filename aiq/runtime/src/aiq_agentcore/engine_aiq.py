@@ -262,6 +262,10 @@ class AiqEngine(Engine):
                     emit("status", {"description": f"{PHASE_LABELS[name]} — done", "done": True, "phase": name})
                 elif et == IntermediateStepType.TOOL_START and name and name not in ("web_search_tool", "knowledge_search"):
                     emit("status", {"description": f"Using {name}", "done": False, "tool": name})
+                elif et == IntermediateStepType.TOOL_END and name in ("execute", "write_file", "task"):
+                    out = getattr(getattr(p, "data", None), "output", None)
+                    text = out if isinstance(out, str) else (getattr(out, "content", None) or str(out or ""))
+                    emit("tool.result", {"tool": name, "output_preview": str(text)[:300]})
                 elif et == IntermediateStepType.LLM_START:
                     llm_calls["n"] += 1
                 elif et == IntermediateStepType.LLM_END:

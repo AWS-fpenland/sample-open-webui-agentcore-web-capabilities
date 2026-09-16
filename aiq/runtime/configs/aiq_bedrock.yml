@@ -134,7 +134,7 @@ functions:
     provider: agentcore_code_interpreter
     workdir: /tmp/aiq
     timeout: 900
-    network: open
+    network: blocked
     artifact_capture:
       enabled: false
   deep_research_agent:

@@ -21,9 +21,16 @@ class FakeClient:
         name, args = kw["name"], kw["arguments"]
         if name == "executeCommand":
             cmd = args["command"]
-            if "python3 -c" in cmd and "base64" in cmd:
+            if "AIQ_B64_EOF" in cmd:  # upload shim
                 return {"stream": [{"result": {"content": [{"type": "text", "text": "ok"}],
                                                "structuredContent": {"stdout": "ok\n", "stderr": "", "exitCode": 0}}}]}
+            if "__AIQ_NOT_FOUND__" in cmd:  # download shim
+                import base64 as _b
+                if cmd.rstrip().endswith("chart.png'") or "chart.png" in cmd:
+                    return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"\x89PNG\r\n").decode(), "stderr": "", "exitCode": 0}}}]}
+                if "missing.txt" in cmd:
+                    return {"stream": [{"result": {"structuredContent": {"stdout": "__AIQ_NOT_FOUND__\n", "stderr": "", "exitCode": 0}}}]}
+                return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"a,b\n1,2\n").decode(), "stderr": "", "exitCode": 0}}}]}
             if cmd.startswith("find "):
                 return {"stream": [{"result": {"structuredContent": {"stdout": "/tmp/aiq/j/aiq-artifacts/chart.png\n/tmp/aiq/j/aiq-artifacts/notes.exe\n", "stderr": "", "exitCode": 0}}}]}
             return {"stream": [{"result": {"content": [{"type": "text", "text": "hello"}],
@@ -63,13 +70,11 @@ def test_execute_wraps_long_timeouts_with_timeout_command():
     assert c.calls[0]["arguments"]["command"].startswith("timeout 840 bash -c ")
 
 
-def test_upload_uses_writefiles_then_python_fallback():
+def test_upload_uses_python_shim_with_absolute_paths():
     c, s = make()
     out = s.upload_files([("/tmp/aiq/j/x.txt", b"data")])
-    assert out[0].error is None and c.calls[0]["name"] == "writeFiles" and c.calls[0]["arguments"]["content"][0]["blob"] == b"data"
-    c.fail_write = True
-    out = s.upload_files([("/tmp/aiq/j/y.txt", b"more")])
-    assert out[0].error is None and c.calls[-1]["name"] == "executeCommand" and base64.b64encode(b"more").decode() in c.calls[-1]["arguments"]["command"]
+    assert out[0].error is None and c.calls[0]["name"] == "executeCommand"
+    assert base64.b64encode(b"data").decode() in c.calls[0]["arguments"]["command"] and "/tmp/aiq/j/x.txt" in c.calls[0]["arguments"]["command"]
 
 
 def test_download_blob_text_and_missing():

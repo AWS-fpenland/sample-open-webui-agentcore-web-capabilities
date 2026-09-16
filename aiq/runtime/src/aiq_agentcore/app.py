@@ -35,7 +35,7 @@ from typing import Any
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from pydantic import ValidationError
 
-from . import __version__
+from . import __version__, guardrails, metrics
 from .contracts import (ApiError, ErrorCode, Event, EventType, InvokeRequest, JobStatus, Op, Principal,
                         ResearchMode)
 from .engine_base import Engine, EngineRequest, MockEngine
@@ -106,7 +106,36 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
     started = time.monotonic()
     last_cancel_check = 0.0
     terminal_seen = False
+    outcome = "completed"
+    usage_seen: dict[str, Any] = {}
+    cit_ok = cit_bad = n_sources = 0
+    loop = asyncio.get_running_loop()
+
+    async def heartbeat() -> None:  # keeps heartbeat_at fresh so the reaper never mistakes a live job for a dead one
+        while True:
+            await asyncio.sleep(30)
+            try:
+                await loop.run_in_executor(None, st.heartbeat, tenant, job_id)
+            except Exception as e:  # noqa: BLE001
+                jlog(logging.WARNING, event="heartbeat.failed", job_id=job_id, error=repr(e)[:200])
+
+    hb_task = loop.create_task(heartbeat())
     try:
+        # INPUT guardrail (opt-in): the question is checked before any model or tool call.
+        gr_in = await loop.run_in_executor(None, guardrails.apply, req.question, "INPUT")
+        if gr_in.action not in ("DISABLED", "NONE"):
+            yield st.append_event(tenant, job_id, EventType.GUARDRAIL, {"source": "INPUT", "action": gr_in.action,
+                                                                          "reasons": gr_in.reasons})
+        if gr_in.blocked or gr_in.action == "ERROR":
+            code = ErrorCode.INVALID_REQUEST if gr_in.blocked else ErrorCode.INTERNAL
+            msg = gr_in.text if gr_in.blocked else "content policy check unavailable; request not processed"
+            st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=msg[:500])
+            yield st.append_event(tenant, job_id, EventType.ERROR, {"error": ApiError(code=code, message=msg[:500],
+                                                                                      retryable=not gr_in.blocked).model_dump(),
+                                                                    "terminal": True, "guardrail": True})
+            outcome = "blocked"
+            terminal_seen = True
+            return
         async for ev in engine().run(req, cancelled):
             # Cooperative cancellation: poll the durable flag at most every second.
             now = time.monotonic()
@@ -114,20 +143,36 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
                 last_cancel_check = now
                 if await asyncio.get_running_loop().run_in_executor(None, st.cancel_requested, tenant, job_id):
                     cancelled.set()
+            if ev.type == EventType.CLARIFICATION:
+                rec_now = st.get_job(tenant, job_id)
+                prev = dict(rec_now.plan) if rec_now and rec_now.plan else {}
+                st.update_job(tenant, job_id, plan={**prev, "pending_question": ev.data.get("question"),
+                                                    "clarification": ev.data.get("answered", [])})
             if ev.type == EventType.PLAN_APPROVAL_REQUIRED:
                 st.update_job(tenant, job_id, status=JobStatus.CLARIFYING.value)
             if ev.type == EventType.REPORT and ev.data.get("text"):
+                # OUTPUT guardrail (opt-in) on the final report before it is stored or streamed.
+                gr_out = await loop.run_in_executor(None, guardrails.apply, ev.data["text"], "OUTPUT")
+                if gr_out.action not in ("DISABLED", "NONE"):
+                    st.append_event(tenant, job_id, EventType.GUARDRAIL, {"source": "OUTPUT", "action": gr_out.action,
+                                                                            "reasons": gr_out.reasons})
+                    if gr_out.blocked or gr_out.action == "MODIFIED":
+                        ev.data["text"] = gr_out.text
+                        ev.data["guardrail_action"] = gr_out.action
                 key = st.report_key(tenant, job_id)
                 st.put_text(key, ev.data["text"])
                 ev.data["report_key"] = key
+                n_sources = len(ev.data.get("sources") or [])
                 st.update_job(tenant, job_id, report_key=key)
             if ev.type == EventType.CITATIONS:
                 key = st.report_key(tenant, job_id, "ledger.json")
                 st.put_json(key, ev.data)
                 ev.data["ledger_key"] = key
+                cit_ok, cit_bad = int(ev.data.get("verified", 0) or 0), int(ev.data.get("unverified", 0) or 0)
                 st.update_job(tenant, job_id, ledger_key=key)
             if ev.type == EventType.USAGE:
-                st.update_job(tenant, job_id, usage={k: int(v) for k, v in ev.data.items() if isinstance(v, (int, float))})
+                usage_seen = {k: int(v) for k, v in ev.data.items() if isinstance(v, (int, float))}
+                st.update_job(tenant, job_id, usage=usage_seen)
             stored = await asyncio.get_running_loop().run_in_executor(None, st.append_event, tenant, job_id, ev.type,
                                                                       ev.data)
             if ev.type == EventType.COMPLETED:
@@ -136,18 +181,22 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
             elif ev.type == EventType.CANCELLED:
                 st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
                 terminal_seen = True
+                outcome = "cancelled"
             elif ev.type == EventType.ERROR and ev.data.get("terminal"):
                 err = ev.data.get("error") or {}
                 st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=str(err.get("message", ""))[:1000])
                 terminal_seen = True
+                outcome = "failed"
             yield stored
             if terminal_seen:
                 break
         if not terminal_seen:
             rec = st.get_job(tenant, job_id)
             if rec and rec.status == JobStatus.CLARIFYING:
+                outcome = "clarifying"
                 return  # waiting on the user; not terminal
             if cancelled.is_set():
+                outcome = "cancelled"
                 st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
                 yield st.append_event(tenant, job_id, EventType.CANCELLED, {"reason": "cancel_requested"})
             else:
@@ -155,10 +204,12 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
                 yield st.append_event(tenant, job_id, EventType.COMPLETED, {"status": "completed",
                                                                             "note": "engine ended without explicit completion"})
     except asyncio.CancelledError:
+        outcome = "cancelled"
         st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
         yield st.append_event(tenant, job_id, EventType.CANCELLED, {"reason": "task_cancelled"})
         raise
     except Exception as e:  # noqa: BLE001 — surface, never hide, engine failures
+        outcome = "failed"
         jlog(logging.ERROR, event="job.failed", job_id=job_id, error=repr(e)[:500])
         st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=repr(e)[:1000])
         yield st.append_event(tenant, job_id, EventType.ERROR, {"error": ApiError(code=ErrorCode.INTERNAL,
@@ -166,8 +217,16 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
                                                                                   retryable=True).model_dump(),
                                                                 "terminal": True})
     finally:
+        hb_task.cancel()
         _cancel_flags.pop(job_id, None)
-        jlog(logging.INFO, event="job.finished", job_id=job_id, seconds=round(time.monotonic() - started, 2))
+        secs = round(time.monotonic() - started, 2)
+        jlog(logging.INFO, event="job.finished", job_id=job_id, seconds=secs, outcome=outcome)
+        if outcome != "clarifying":
+            try:
+                metrics.emit_job_metrics(mode=req.mode.value, outcome=outcome, seconds=secs, usage=usage_seen,
+                                         citations_verified=cit_ok, citations_unverified=cit_bad, sources=n_sources)
+            except Exception as e:  # noqa: BLE001
+                jlog(logging.WARNING, event="metrics.failed", error=repr(e)[:200])
 
 
 async def _background_job(principal: Principal, job_id: str, req: EngineRequest) -> None:
@@ -207,7 +266,8 @@ async def _op_chat(principal: Principal, body: InvokeRequest, session_id: str | 
     yield _line({"type": EventType.JOB_ACCEPTED.value, "seq": 0, "job_id": rec.job_id,
                  "data": {"mode": body.mode.value, "created": created}})
     req = EngineRequest(principal=principal, mode=body.mode, messages=body.messages, job_id=rec.job_id,
-                        collection=body.collection, approval=body.approval, revision=body.revision)
+                        collection=body.collection, approval=body.approval, revision=body.revision,
+                        data_sources=body.data_sources, active_report_job_id=body.active_report_job_id)
     async for ev in _journal_run(principal, rec.job_id, req):
         yield _line(ev.model_dump(mode="json"))
 
@@ -221,7 +281,8 @@ async def _op_submit(principal: Principal, body: InvokeRequest, session_id: str 
                                  conversation_id=body.conversation_id)
     if created:
         req = EngineRequest(principal=principal, mode=mode, messages=body.messages, job_id=rec.job_id,
-                            collection=body.collection)
+                            collection=body.collection, data_sources=body.data_sources,
+                            active_report_job_id=body.active_report_job_id)
         _start_background(principal, rec.job_id, req)
     yield _line({"type": EventType.JOB_ACCEPTED.value, "seq": 0, "job_id": rec.job_id,
                  "data": {"mode": mode.value, "created": created, "status": rec.status.value}})
@@ -295,9 +356,24 @@ async def _op_approve(principal: Principal, body: InvokeRequest, session_id: str
         yield _line(st.append_event(principal.tenant_key, rec.job_id, EventType.CANCELLED,
                                     {"reason": "plan_rejected"}).model_dump(mode="json"))
         return
-    req = EngineRequest(principal=principal, mode=rec.mode, messages=body.messages or
-                        [{"role": "user", "content": rec.question}],  # type: ignore[list-item]
-                        job_id=rec.job_id, collection=body.collection, approval=body.approval, revision=body.revision)
+    # Clarification transcript: previous Q/A pairs from the plan + this turn's answer (revision) for the last question.
+    plan = dict(rec.plan or {})
+    qa: list[tuple[str, str]] = [(x.get("q", ""), x.get("a", "")) for x in plan.get("clarification", []) if x.get("a")]
+    last_q = plan.get("pending_question")
+    if last_q is None:
+        for ev in reversed(st.read_events(rec.job_id, after=0, limit=1000)):
+            if ev.type == EventType.CLARIFICATION:
+                last_q = ev.data.get("question")
+                break
+    if last_q:
+        qa.append((last_q, body.revision or "skip"))
+    st.update_job(principal.tenant_key, rec.job_id, plan={"clarification": [{"q": q, "a": a} for q, a in qa]},
+                  status=JobStatus.RUNNING.value)
+    from .contracts import ChatMessage
+    req = EngineRequest(principal=principal, mode=rec.mode,
+                        messages=body.messages or [ChatMessage(role="user", content=rec.question)],
+                        job_id=rec.job_id, collection=body.collection, approval=body.approval, revision=body.revision,
+                        data_sources=body.data_sources, clarification=qa)
     _start_background(principal, rec.job_id, req)
     yield _line({"type": EventType.JOB_ACCEPTED.value, "seq": rec.last_seq, "job_id": rec.job_id,
                  "data": {"resumed": True, "approval": body.approval}})

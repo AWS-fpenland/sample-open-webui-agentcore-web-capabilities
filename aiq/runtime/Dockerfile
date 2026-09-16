@@ -53,7 +53,7 @@ COPY configs ./configs
 # Adapter dependencies not present in upstream's lock (bedrock-agentcore SDK, PyJWT). uv keeps every
 # already-installed locked version that satisfies the constraints; the printed report shows any change.
 RUN uv pip freeze --python /opt/venv/bin/python > /tmp/before.txt \
-    && uv pip install --python /opt/venv/bin/python "bedrock-agentcore>=1.23.0,<2" "PyJWT[crypto]>=2.9,<3" \
+    && uv pip install --python /opt/venv/bin/python "bedrock-agentcore>=1.23.0,<2" "PyJWT[crypto]>=2.9,<3" "playwright>=1.50,<2" \
     && uv pip install --python /opt/venv/bin/python --no-deps -e . \
     && uv pip freeze --python /opt/venv/bin/python > /tmp/after.txt \
     && echo "== dependency deviations from upstream lock (only lines that changed) ==" \

@@ -146,3 +146,15 @@ def test_resume_tails_after_pause_cursor(pipe, monkeypatch):
     text = asyncio.run(run())
     assert calls[0]["op"] == "approve" and calls[0]["revision"] == "S3 Vectors latency"
     assert "The report" in text and f"aiq-job:{job}:completed" in text
+
+
+def test_user_valves_sources(pipe):
+    class UV:
+        SOURCES = "web_search, documents,bogus,news"
+        PAGE_FETCH = False
+        REPORT_FOLLOWUPS = True
+
+    sources, page_fetch, followups = pipe._user_sources({"valves": UV()})
+    assert sources == ["web_search", "documents", "news"] and page_fetch is False and followups is True
+    assert pipe._user_sources({})[0] == ["web_search", "documents"]
+    assert pipe._user_sources({"valves": {"SOURCES": "", "PAGE_FETCH": True}})[0] is None

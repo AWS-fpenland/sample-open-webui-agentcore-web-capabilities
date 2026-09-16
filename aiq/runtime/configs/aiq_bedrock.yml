@@ -69,9 +69,10 @@ functions:
     sources:
       - id: web_search
         name: Web Search
-        description: Search the public web for current information (AgentCore managed Web Search).
+        description: Search the public web for current information (AgentCore managed Web Search) and read pages (AgentCore Browser).
         tools:
           - web_search_tool
+          - fetch_page_tool
       - id: documents
         name: My documents
         description: The user's own uploaded document collections (Bedrock Knowledge Base, tenant-filtered).
@@ -82,6 +83,10 @@ functions:
     _type: agentcore_web_search
     max_results: 5
     max_content_length: 1200
+  fetch_page_tool:
+    _type: agentcore_fetch_page
+    max_chars: 12000
+    max_pages_per_job: ${AIQ_FETCH_MAX_PAGES:-12}
   knowledge_search:
     _type: agentcore_knowledge_search
     top_k: 6
@@ -97,6 +102,9 @@ functions:
     llm: shallow_llm
     max_llm_turns: 10
     max_tool_iterations: 5
+    enforce_citations: ${AIQ_ENFORCE_CITATIONS:-true}
+    exclude_tools:
+      - fetch_page_tool
   deep_research_agent:
     _type: deep_research_agent
     enable_citation_verification: true

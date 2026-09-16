@@ -112,10 +112,16 @@ class AiqEngine(Engine):
             for q, a in clarification:
                 lines.append(f"**Q:** {q}\n**A:** {a}")
             question = question + "\n".join(lines)
-        sources = ["web_search"]
-        if req.collection:
+        if req.data_sources:
+            sources = list(dict.fromkeys(req.data_sources))
+        else:
+            sources = ["web_search"]
+        if req.collection and "documents" not in sources:
             sources.append("documents")
-        return json.dumps({"query": question, "data_sources": sources})
+        payload: dict[str, Any] = {"query": question, "data_sources": sources}
+        if req.active_report_job_id:
+            payload["active_report_job_id"] = req.active_report_job_id
+        return json.dumps(payload)
 
     @staticmethod
     def _response_text(result: Any) -> str:
@@ -172,7 +178,7 @@ class AiqEngine(Engine):
         clarifier = mode in (ResearchMode.AUTO, ResearchMode.DEEP_CLARIFY)
         depth = {"shallow": "shallow", "deep": "deep", "deep_clarify": "deep"}.get(mode.value)
         # Previously answered clarification turns travel in the job's plan (set by the adapter on resume).
-        answered: list[tuple[str, str]] = [(q, a) for q, a in (req.__dict__.get("clarification") or [])]
+        answered: list[tuple[str, str]] = [(q, a) for q, a in (req.clarification or [])]
         answers_iter = iter(a for _, a in answered)
         skip_all = req.approval == "approve" and not req.revision
 
@@ -260,7 +266,8 @@ class AiqEngine(Engine):
                     while not queue.empty():
                         yield queue.get_nowait()
                     yield EngineEvent(EventType.CLARIFICATION, {"question": question, "turn": len(answered) + 1,
-                                                                "answered": [{"q": q, "a": a} for q, a in answered]})
+                                                                "answered": [{"q": q, "a": a} for q, a in answered],
+                                                                "pending_question": question})
                     yield EngineEvent(EventType.PLAN_APPROVAL_REQUIRED,
                                       {"prompt": "Reply with your answer, **approve** to proceed as-is, or **cancel**."})
                     return

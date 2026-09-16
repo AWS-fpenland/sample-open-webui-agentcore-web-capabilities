@@ -39,6 +39,9 @@ class EngineRequest:
     collection: str | None = None
     approval: str | None = None
     revision: str | None = None
+    data_sources: list[str] | None = None
+    active_report_job_id: str | None = None
+    clarification: list[tuple[str, str]] | None = None
 
     @property
     def question(self) -> str:

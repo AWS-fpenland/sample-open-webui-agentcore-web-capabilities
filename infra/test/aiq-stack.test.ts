@@ -47,6 +47,30 @@ describe('AiqStack', () => {
     t.hasResourceProperties('AWS::CodeBuild::Project', { Environment: Match.objectLike({ PrivilegedMode: true, Type: 'ARM_CONTAINER' }) });
   });
 
+  test('guardrail, reaper and sandbox permissions are present and scoped', () => {
+    const t = synth({ imageTag: 'abc123' });
+    t.hasResourceProperties('AWS::Bedrock::Guardrail', { Name: 'aiq-test-run-guardrail',
+      ContentPolicyConfig: { FiltersConfig: Match.arrayWith([Match.objectLike({ Type: 'PROMPT_ATTACK', InputStrength: 'HIGH' })]) } });
+    t.resourceCountIs('AWS::Bedrock::GuardrailVersion', 1);
+    t.hasResourceProperties('AWS::Lambda::Function', { FunctionName: 'aiq-test-run-reaper', Runtime: 'python3.12',
+      Environment: { Variables: Match.objectLike({ STALE_AFTER_SECONDS: '600' }) } });
+    t.hasResourceProperties('AWS::Events::Rule', { ScheduleExpression: 'rate(5 minutes)' });
+    t.hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
+      EnvironmentVariables: Match.objectLike({ AIQ_ENFORCE_CITATIONS: 'true', AIQ_FETCH_MAX_PAGES: '12', AIQ_GUARDRAIL_ID: Match.anyValue() }),
+    });
+    const policies = t.findResources('AWS::IAM::Policy');
+    const statements = Object.values(policies).flatMap((p: any) => p.Properties.PolicyDocument.Statement as any[]);
+    const sandbox = statements.find((s) => s.Sid === 'AgentCoreBuiltinSandboxTools');
+    expect(sandbox).toBeDefined();
+    expect(sandbox.Resource).toEqual(expect.arrayContaining([expect.stringContaining(':aws:browser/*')]));
+    expect(sandbox.Resource).not.toContain('*');
+  });
+
+  test('guardrail can be disabled', () => {
+    const t = synth({ imageTag: 'abc123', guardrail: false });
+    t.resourceCountIs('AWS::Bedrock::Guardrail', 0);
+  });
+
   test('phase 2 adds a JWT-authorized HTTP runtime that forwards Authorization and pins the digest', () => {
     const t = synth({ imageTag: 'abc123', imageDigest: 'sha256:' + 'f'.repeat(64) });
     t.resourceCountIs('AWS::BedrockAgentCore::Runtime', 1);

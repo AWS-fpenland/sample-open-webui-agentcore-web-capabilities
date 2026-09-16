@@ -40,6 +40,9 @@ new AiqStack(app, `aiq-${runId}`, {
   imageTag,
   imageDigest,
   retentionDays: Number(app.node.tryGetContext('retentionDays') ?? 30),
+  guardrail: app.node.tryGetContext('guardrail') !== 'off',
+  enforceCitations: app.node.tryGetContext('enforceCitations') !== 'false',
+  fetchMaxPages: Number(app.node.tryGetContext('fetchMaxPages') ?? 12),
   models: {
     // Verified available in the target account on 2026-09-15 (Converse OK).
     router: model('modelRouter', 'global.anthropic.claude-haiku-4-5-20251001-v1:0'),

@@ -68,8 +68,24 @@ class Pipe:
         APPROVAL_KEYWORDS: str = Field(default="approve,yes,go,proceed,start",
                                        description="Replies that approve a pending clarification/plan.")
 
+    class UserValves(BaseModel):
+        SOURCES: str = Field(default="web_search,documents",
+                             description="Data sources AI-Q may use, comma-separated: web_search, documents, news, prediction_markets.")
+        PAGE_FETCH: bool = Field(default=True, description="Allow the researchers to open web pages (AgentCore Browser) for depth.")
+        REPORT_FOLLOWUPS: bool = Field(default=True,
+                                       description="Let follow-up questions in this chat refer to the last completed report.")
+
     def __init__(self):
         self.valves = self.Valves()
+
+    @staticmethod
+    def _user_sources(__user__: dict) -> tuple[list[str] | None, bool, bool]:
+        uv = (__user__ or {}).get("valves")
+        get = (lambda k, d: getattr(uv, k, d)) if uv is not None and not isinstance(uv, dict) else (lambda k, d: (uv or {}).get(k, d))
+        raw = str(get("SOURCES", "web_search,documents") or "")
+        allowed = {"web_search", "documents", "news", "prediction_markets"}
+        sources = [x.strip() for x in raw.split(",") if x.strip() in allowed]
+        return (sources or None), bool(get("PAGE_FETCH", True)), bool(get("REPORT_FOLLOWUPS", True))
 
     # ------------------------------------------------------------------ models --
     def pipes(self) -> list[dict]:
@@ -334,8 +350,13 @@ class Pipe:
             return "Ask a research question, or attach documents to build a collection."
 
         # ---- run -------------------------------------------------------------
+        sources, page_fetch, followups = self._user_sources(__user__)
+        if sources is not None and not page_fetch and "web_search" in sources:
+            sources = [x for x in sources if x != "web_search"] + ["web_search_no_pages"]
         base = {"mode": mode, "messages": messages, "client_request_id": message_id, "conversation_id": chat_id,
-                "collection": collection}
+                "collection": collection, "data_sources": sources}
+        if followups and pending and pending[1] == "completed" and mode in ("auto", "shallow"):
+            base["active_report_job_id"] = pending[0]  # follow-up over the last completed report in this chat
         if mode in ("deep", "deep_clarify"):
             await status("Submitting deep research job…")
             job_id = None
@@ -396,6 +417,21 @@ class Pipe:
             await status(f"Citations verified: {v} ok, {u} unverified", done=True)
         elif t == "usage":
             state["usage"] = d
+        elif t == "tool.result" and d.get("tool") == "agentcore_fetch_page":
+            if d.get("error"):
+                await status(f"Page skipped ({d.get('error')}): {str(d.get('url', ''))[:90]}")
+            else:
+                await status(f"Read page ({d.get('chars', 0)} chars): {str(d.get('url', ''))[:90]}")
+        elif t == "guardrail":
+            act = d.get("action")
+            if act in ("GUARDRAIL_INTERVENED", "MODIFIED", "ERROR"):
+                await status(f"Content policy ({d.get('source', '').lower()}): {act.lower().replace('_', ' ')}", done=True)
+        elif t == "artifact":
+            name = d.get("name") or "artifact"
+            if d.get("markdown"):
+                yield "\n\n" + d["markdown"] + "\n\n"
+            else:
+                await status(f"Artifact captured: {name}")
         elif t == "warning":
             await status(f"Warning: {d.get('message', '')[:200]}")
         elif t == "error":

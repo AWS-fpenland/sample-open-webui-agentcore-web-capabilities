@@ -5,8 +5,12 @@ import * as agentcore from 'aws-cdk-lib/aws-bedrockagentcore';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as path from 'path';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 
@@ -56,6 +60,12 @@ export interface AiqStackProps extends cdk.StackProps {
   readonly retentionDays?: number;
   /** Extra runtime environment variables (never secrets). */
   readonly runtimeEnvironment?: Record<string, string>;
+  /** Create an Amazon Bedrock Guardrail and apply it at the adapter boundary (default true). */
+  readonly guardrail?: boolean;
+  /** Fail shallow answers whose citations cannot be verified (upstream enforce_citations; default true). */
+  readonly enforceCitations?: boolean;
+  /** Max pages per job the Browser page loader may fetch (default 12). */
+  readonly fetchMaxPages?: number;
 }
 
 export const WEB_SEARCH_CONNECTOR_ID = 'web-search';
@@ -441,6 +451,98 @@ export class AiqStack extends cdk.Stack {
     this.artifacts.grantDelete(runtimeRole, 'documents/*');
     this.artifacts.grantRead(runtimeRole, 'builds/*');
 
+    // AgentCore Browser (page loader) and Code Interpreter (sandboxed skills). The AWS-managed
+    // defaults (aws.browser.v1 / aws.codeinterpreter.v1) live under the "aws" account namespace;
+    // sessions are sub-resources of the browser/code-interpreter ARNs. Proven pattern from the
+    // fleet's PersonalAssistant/ContentOps runtimes.
+    runtimeRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'AgentCoreBuiltinSandboxTools',
+      actions: [
+        'bedrock-agentcore:StartBrowserSession', 'bedrock-agentcore:StopBrowserSession',
+        'bedrock-agentcore:GetBrowserSession', 'bedrock-agentcore:ListBrowserSessions',
+        'bedrock-agentcore:ConnectBrowserAutomationStream', 'bedrock-agentcore:UpdateBrowserStream',
+        'bedrock-agentcore:GetBrowser', 'bedrock-agentcore:ListBrowsers',
+        'bedrock-agentcore:StartCodeInterpreterSession', 'bedrock-agentcore:InvokeCodeInterpreter',
+        'bedrock-agentcore:StopCodeInterpreterSession', 'bedrock-agentcore:GetCodeInterpreterSession',
+        'bedrock-agentcore:ListCodeInterpreterSessions', 'bedrock-agentcore:GetCodeInterpreter',
+        'bedrock-agentcore:ListCodeInterpreters',
+      ],
+      resources: [
+        `arn:aws:bedrock-agentcore:${region}:aws:browser/*`,
+        `arn:aws:bedrock-agentcore:${region}:aws:code-interpreter/*`,
+        `arn:aws:bedrock-agentcore:${region}:${account}:browser/*`,
+        `arn:aws:bedrock-agentcore:${region}:${account}:browser-custom/*`,
+        `arn:aws:bedrock-agentcore:${region}:${account}:code-interpreter/*`,
+        `arn:aws:bedrock-agentcore:${region}:${account}:code-interpreter-custom/*`,
+      ],
+    }));
+
+    // ── Amazon Bedrock Guardrail (native replacement for AI-Q's optional NeMo Guardrails) ──
+    let guardrailEnv: Record<string, string> = {};
+    if (props.guardrail !== false) {
+      const guardrail = new cdk.CfnResource(this, 'Guardrail', {
+        type: 'AWS::Bedrock::Guardrail',
+        properties: {
+          Name: `${prefix}-guardrail`,
+          Description: `AI-Q ${runId}: input prompt-attack/content screening and output content screening`,
+          BlockedInputMessaging: 'This research request was blocked by the content policy. Please rephrase it.',
+          BlockedOutputsMessaging: 'Part of this report was withheld by the content policy.',
+          ContentPolicyConfig: {
+            FiltersConfig: [
+              { Type: 'PROMPT_ATTACK', InputStrength: 'HIGH', OutputStrength: 'NONE' },
+              { Type: 'HATE', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
+              { Type: 'INSULTS', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
+              { Type: 'SEXUAL', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
+              { Type: 'VIOLENCE', InputStrength: 'MEDIUM', OutputStrength: 'MEDIUM' },
+              { Type: 'MISCONDUCT', InputStrength: 'MEDIUM', OutputStrength: 'MEDIUM' },
+            ],
+          },
+          Tags: [{ Key: 'aiq:run-id', Value: runId }],
+        },
+      });
+      guardrail.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
+      const guardrailVersion = new cdk.CfnResource(this, 'GuardrailVersion', {
+        type: 'AWS::Bedrock::GuardrailVersion',
+        properties: { GuardrailIdentifier: guardrail.getAtt('GuardrailId').toString(), Description: 'v1 for AI-Q on AgentCore' },
+      });
+      runtimeRole.addToPolicy(new iam.PolicyStatement({
+        sid: 'ApplyGuardrail',
+        actions: ['bedrock:ApplyGuardrail'],
+        resources: [guardrail.getAtt('GuardrailArn').toString()],
+      }));
+      guardrailEnv = {
+        AIQ_GUARDRAIL_ID: guardrail.getAtt('GuardrailId').toString(),
+        AIQ_GUARDRAIL_VERSION: guardrailVersion.getAtt('Version').toString(),
+      };
+      new cdk.CfnOutput(this, 'GuardrailId', { value: guardrail.getAtt('GuardrailId').toString() });
+    }
+
+    // ── Stale-job reaper: marks jobs whose runtime session died as failed (heartbeat > 10 min old) ──
+    const reaper = new lambda.Function(this, 'StaleJobReaper', {
+      functionName: `${prefix}-reaper`,
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', '..', 'aiq', 'reaper'), { exclude: ['tests', '__pycache__'] }),
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 256,
+      environment: {
+        JOBS_TABLE: this.jobsTable.tableName,
+        EVENTS_TABLE: this.eventsTable.tableName,
+        STALE_AFTER_SECONDS: '600',
+        TTL_SECONDS: String(retentionDays * 86400),
+      },
+      logRetention: logs.RetentionDays.TWO_WEEKS,
+      description: `AI-Q ${runId}: fails jobs with a stale heartbeat (lost runtime session)`,
+    });
+    this.jobsTable.grantReadWriteData(reaper);
+    this.eventsTable.grantWriteData(reaper);
+    new events.Rule(this, 'ReaperSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+      targets: [new targets.LambdaFunction(reaper)],
+      description: `AI-Q ${runId}: stale-job reaper every 5 minutes`,
+    });
+    new cdk.CfnOutput(this, 'ReaperFunction', { value: reaper.functionName });
+
     // ── Runtime (phase 2: requires a built image) ─────────────────────────
     const imageRef = props.imageDigest
       ? `${this.repository.repositoryUri}@${props.imageDigest}`
@@ -482,6 +584,9 @@ export class AiqStack extends cdk.Stack {
             AIQ_MODEL_RESEARCHER: props.models.researcher,
             AIQ_MODEL_WRITER: props.models.writer,
             AIQ_RETENTION_DAYS: String(retentionDays),
+            AIQ_ENFORCE_CITATIONS: props.enforceCitations === false ? 'false' : 'true',
+            AIQ_FETCH_MAX_PAGES: String(props.fetchMaxPages ?? 12),
+            ...guardrailEnv,
             ...(props.runtimeEnvironment ?? {}),
           },
         },

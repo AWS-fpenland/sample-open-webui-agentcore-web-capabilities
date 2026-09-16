@@ -301,11 +301,22 @@ def build_provider_class():
     return AgentCoreCodeInterpreterProvider
 
 
+# Module-level class for the `aiq.sandbox_providers` entry point (the registry instantiates the target as
+# `cls(config, job_id)`, so it must be a class, not a factory). None when upstream AI-Q is not installed.
+try:
+    AgentCoreCodeInterpreterProvider = build_provider_class()
+except Exception as _e:  # noqa: BLE001 — adapter-only environments (unit tests) lack upstream AI-Q
+    AgentCoreCodeInterpreterProvider = None  # type: ignore[assignment]
+    log.debug("AgentCore sandbox provider class unavailable (%s)", _e.__class__.__name__)
+
+
 def register() -> bool:
+    if AgentCoreCodeInterpreterProvider is None:
+        return False
     try:
         from aiq_agent.agents.deep_researcher.sandbox.registry import register_sandbox_provider
-    except Exception as e:  # noqa: BLE001 — upstream not installed (adapter-only test env)
+    except Exception as e:  # noqa: BLE001
         log.debug("sandbox provider not registered (%s)", e.__class__.__name__)
         return False
-    register_sandbox_provider("agentcore_code_interpreter", build_provider_class())
+    register_sandbox_provider("agentcore_code_interpreter", AgentCoreCodeInterpreterProvider)
     return True

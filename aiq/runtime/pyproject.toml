@@ -32,7 +32,7 @@ aiq_agentcore_fetch_page = "aiq_agentcore.nat_plugins.fetch_page"
 aiq_agentcore_sandbox = "aiq_agentcore.nat_plugins.sandbox"
 
 [project.entry-points."aiq.sandbox_providers"]
-agentcore_code_interpreter = "aiq_agentcore.sandbox_agentcore:build_provider_class"
+agentcore_code_interpreter = "aiq_agentcore.sandbox_agentcore:AgentCoreCodeInterpreterProvider"
 
 [tool.setuptools.packages.find]
 where = ["src"]

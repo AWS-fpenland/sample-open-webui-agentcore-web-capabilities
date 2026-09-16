@@ -42,6 +42,7 @@ RUN uv export --frozen --no-dev --no-hashes --no-emit-project --package aiq-agen
     && uv venv /opt/venv --python 3.12 \
     && uv pip install --python /opt/venv/bin/python -r /tmp/req.txt \
     && uv pip install --python /opt/venv/bin/python --no-deps -e /opt/aiq \
+    && uv pip install --python /opt/venv/bin/python -e /opt/aiq/sources/duckduckgo_news_search -e /opt/aiq/sources/polymarket_prediction_market \
     && rm -rf /root/.cache/uv
 ENV PATH="/opt/venv/bin:${PATH}" VIRTUAL_ENV=/opt/venv
 

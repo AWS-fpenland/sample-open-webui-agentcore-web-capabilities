@@ -72,6 +72,16 @@ class AiqEngine(Engine):
         with open(self.config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         cfg.setdefault("workflow", {})["enable_clarifier"] = bool(clarifier)
+        # Optional per-role Bedrock request fields from env (e.g. Nemotron `reasoning_effort`, Claude extended thinking).
+        # AIQ_REASONING_EFFORT_<ROLE> in {none, minimal, low, medium, high, xhigh, max} adds
+        # additional_model_request_fields.reasoning_effort to that role; unset = provider default.
+        for role in ("router", "clarifier", "shallow", "planner", "researcher", "writer"):
+            effort = os.environ.get(f"AIQ_REASONING_EFFORT_{role.upper()}", "").strip().lower()
+            block = cfg.get("llms", {}).get(f"{role}_llm")
+            if effort and isinstance(block, dict):
+                fields = dict(block.get("additional_model_request_fields") or {})
+                fields["reasoning_effort"] = effort
+                block["additional_model_request_fields"] = fields
         db = os.environ.get("AIQ_CHECKPOINT_DB", "/app/state/checkpoints.db")
         root, ext = os.path.splitext(db)
         cfg["workflow"]["checkpoint_db"] = f"{root}-{'clarify' if clarifier else 'direct'}{ext or '.db'}"
@@ -314,4 +324,7 @@ class AiqEngine(Engine):
                 task.cancel()
                 with contextlib.suppress(BaseException):
                     await task
-            reset_run_context(token)
+            try:
+                reset_run_context(token)
+            except ValueError:
+                set_run_context(None)  # generator finalised from another Context (aclose/athrow): clear instead of reset

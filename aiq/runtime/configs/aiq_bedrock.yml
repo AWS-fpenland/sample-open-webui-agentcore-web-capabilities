@@ -79,6 +79,18 @@ functions:
         default_enabled: true
         tools:
           - knowledge_search
+      - id: news
+        name: News
+        description: Recent news articles (DuckDuckGo News; no API key; opt-in per user).
+        default_enabled: false
+        tools:
+          - news_search_tool
+      - id: prediction_markets
+        name: Prediction markets
+        description: Polymarket prediction-market odds for forecast questions (public API; opt-in per user).
+        default_enabled: false
+        tools:
+          - prediction_market_tool
   web_search_tool:
     _type: agentcore_web_search
     max_results: 5
@@ -90,6 +102,11 @@ functions:
   knowledge_search:
     _type: agentcore_knowledge_search
     top_k: 6
+  news_search_tool:
+    _type: duckduckgo_news_search
+    max_results: 5
+  prediction_market_tool:
+    _type: polymarket_search
   intent_classifier:
     _type: intent_classifier
     llm: router_llm

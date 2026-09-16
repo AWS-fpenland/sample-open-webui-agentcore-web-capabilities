@@ -57,6 +57,12 @@ new AiqStack(app, `aiq-${runId}`, {
   runtimeEnvironment: {
     AIQ_ENGINE: (app.node.tryGetContext('engine') as string | undefined) ?? 'aiq',
     AIQ_LOG_LEVEL: (app.node.tryGetContext('logLevel') as string | undefined) ?? 'INFO',
+    // Optional per-role Bedrock reasoning control (e.g. Nemotron reasoning_effort none|low|medium|high); unset = provider default.
+    ...Object.fromEntries(
+      (['router', 'clarifier', 'shallow', 'planner', 'researcher', 'writer'] as const)
+        .map((role) => [`AIQ_REASONING_EFFORT_${role.toUpperCase()}`, app.node.tryGetContext(`reasoning${role[0].toUpperCase()}${role.slice(1)}`) as string | undefined])
+        .filter(([, v]) => typeof v === 'string' && v.length > 0),
+    ),
   },
 });
 app.synth();

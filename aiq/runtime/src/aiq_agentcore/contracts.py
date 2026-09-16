@@ -117,8 +117,9 @@ class InvokeRequest(BaseModel):
     approval: Literal["approve", "revise", "reject"] | None = None
     revision: str | None = Field(default=None, max_length=8_000)
     collection: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
-    data_sources: list[str] | None = Field(default=None, max_length=8,
-                                           description="Explicit AI-Q data-source ids (web_search, documents, news, ...); None = default")
+    data_sources: list[str] | None = Field(
+        default=None, max_length=8,
+        description="Explicit AI-Q data-source ids (web_search, documents, news, ...); None = default")
     active_report_job_id: str | None = Field(default=None, pattern=r"^job_[a-f0-9]{32}$",
                                              description="Completed job whose report this turn asks about or edits")
     documents: list[DocumentRef] = Field(default_factory=list, max_length=20)

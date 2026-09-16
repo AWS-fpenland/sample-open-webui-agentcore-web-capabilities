@@ -225,6 +225,15 @@ class AiqEngine(Engine):
                     if tu is not None:
                         usage["input_tokens"] += int(getattr(tu, "prompt_tokens", 0) or 0)
                         usage["output_tokens"] += int(getattr(tu, "completion_tokens", 0) or 0)
+                    # Detect output truncation (Bedrock stopReason max_tokens) — a frequent silent cause of "no tool calls".
+                    out = getattr(getattr(p, "data", None), "output", None)
+                    meta = getattr(out, "response_metadata", None) or (
+                        out.get("response_metadata") if isinstance(out, dict) else None) or {}
+                    stop = str(meta.get("stopReason") or meta.get("stop_reason") or meta.get("finish_reason") or "")
+                    if stop.lower() in ("max_tokens", "length"):
+                        llm_calls["truncated"] = llm_calls.get("truncated", 0) + 1
+                        emit("warning", {"message": f"model output truncated by max_tokens ({name or 'llm'}); "
+                                                    f"raise AIQ_MAX_TOKENS_* or reduce reasoning", "llm": name})
             except Exception as e:  # noqa: BLE001 — never let telemetry break the run
                 log.debug("on_step error: %s", e)
 
@@ -296,7 +305,8 @@ class AiqEngine(Engine):
             yield EngineEvent(EventType.CITATIONS, verification)
             yield EngineEvent(EventType.REPORT, {"text": final_text, "sources": [s.model_dump() for s in ctx.sources.values()],
                                                  "mode": mode.value, "depth": depth})
-            yield EngineEvent(EventType.USAGE, {**usage, "llm_calls": llm_calls["n"], **ctx.counters,
+            yield EngineEvent(EventType.USAGE, {**usage, "llm_calls": llm_calls["n"],
+                                                "truncated_outputs": llm_calls.get("truncated", 0), **ctx.counters,
                                                 "seconds": round(time.monotonic() - started, 1)})
             yield EngineEvent(EventType.COMPLETED, {"status": "completed"})
         finally:

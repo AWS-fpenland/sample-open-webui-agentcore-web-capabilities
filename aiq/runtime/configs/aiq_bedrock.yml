@@ -39,28 +39,28 @@ llms:
     model_name: ${AIQ_MODEL_SHALLOW:-global.anthropic.claude-sonnet-5}
     region_name: ${AIQ_REGION:-us-east-1}
     temperature: 0.2
-    max_tokens: 8192
+    max_tokens: ${AIQ_MAX_TOKENS_SHALLOW:-8192}
     num_retries: 4
   planner_llm:
     _type: aws_bedrock
     model_name: ${AIQ_MODEL_PLANNER:-global.anthropic.claude-sonnet-5}
     region_name: ${AIQ_REGION:-us-east-1}
     temperature: 0.2
-    max_tokens: 8192
+    max_tokens: ${AIQ_MAX_TOKENS_DEEP:-16384}
     num_retries: 4
   researcher_llm:
     _type: aws_bedrock
     model_name: ${AIQ_MODEL_RESEARCHER:-global.anthropic.claude-sonnet-5}
     region_name: ${AIQ_REGION:-us-east-1}
     temperature: 0.2
-    max_tokens: 8192
+    max_tokens: ${AIQ_MAX_TOKENS_DEEP:-16384}
     num_retries: 4
   writer_llm:
     _type: aws_bedrock
     model_name: ${AIQ_MODEL_WRITER:-global.anthropic.claude-sonnet-5}
     region_name: ${AIQ_REGION:-us-east-1}
     temperature: 0.2
-    max_tokens: 16384
+    max_tokens: ${AIQ_MAX_TOKENS_WRITER:-16384}
     num_retries: 4
 
 functions:

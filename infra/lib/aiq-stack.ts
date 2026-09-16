@@ -66,6 +66,9 @@ export interface AiqStackProps extends cdk.StackProps {
   readonly enforceCitations?: boolean;
   /** Max pages per job the Browser page loader may fetch (default 12). */
   readonly fetchMaxPages?: number;
+  /** Output token budgets for the deep roles (planner/researchers) and the writer. */
+  readonly maxTokensDeep?: number;
+  readonly maxTokensWriter?: number;
 }
 
 export const WEB_SEARCH_CONNECTOR_ID = 'web-search';
@@ -586,6 +589,8 @@ export class AiqStack extends cdk.Stack {
             AIQ_RETENTION_DAYS: String(retentionDays),
             AIQ_ENFORCE_CITATIONS: props.enforceCitations === false ? 'false' : 'true',
             AIQ_FETCH_MAX_PAGES: String(props.fetchMaxPages ?? 12),
+            AIQ_MAX_TOKENS_DEEP: String(props.maxTokensDeep ?? 16384),
+            AIQ_MAX_TOKENS_WRITER: String(props.maxTokensWriter ?? 16384),
             ...guardrailEnv,
             ...(props.runtimeEnvironment ?? {}),
           },

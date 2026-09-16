@@ -43,6 +43,8 @@ new AiqStack(app, `aiq-${runId}`, {
   guardrail: app.node.tryGetContext('guardrail') !== 'off',
   enforceCitations: app.node.tryGetContext('enforceCitations') !== 'false',
   fetchMaxPages: Number(app.node.tryGetContext('fetchMaxPages') ?? 12),
+  maxTokensDeep: Number(app.node.tryGetContext('maxTokensDeep') ?? 16384),
+  maxTokensWriter: Number(app.node.tryGetContext('maxTokensWriter') ?? 16384),
   models: {
     // Verified available in the target account on 2026-09-15 (Converse OK).
     router: model('modelRouter', 'global.anthropic.claude-haiku-4-5-20251001-v1:0'),

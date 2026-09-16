@@ -57,6 +57,10 @@ new AiqStack(app, `aiq-${runId}`, {
   runtimeEnvironment: {
     AIQ_ENGINE: (app.node.tryGetContext('engine') as string | undefined) ?? 'aiq',
     AIQ_LOG_LEVEL: (app.node.tryGetContext('logLevel') as string | undefined) ?? 'INFO',
+    // Sandboxed skills on AgentCore Code Interpreter (default on); -c sandbox=off removes skills/sandbox from the workflow.
+    AIQ_SANDBOX: (app.node.tryGetContext('sandbox') as string | undefined) ?? 'on',
+    AIQ_AGENTCORE_CI_IDENTIFIER: (app.node.tryGetContext('codeInterpreter') as string | undefined) ?? 'aws.codeinterpreter.v1',
+    AIQ_AGENTCORE_CI_NETWORK_MODE: (app.node.tryGetContext('codeInterpreterNetwork') as string | undefined) ?? 'PUBLIC',
     // Optional per-role Bedrock reasoning control (e.g. Nemotron reasoning_effort none|low|medium|high); unset = provider default.
     ...Object.fromEntries(
       (['router', 'clarifier', 'shallow', 'planner', 'researcher', 'writer'] as const)

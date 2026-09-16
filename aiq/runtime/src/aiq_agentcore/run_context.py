@@ -29,6 +29,7 @@ class RunContext:
     counters: dict[str, int] = field(default_factory=lambda: {"searches": 0, "pages": 0, "retrievals": 0})
     emit: Emit | None = None  # engine-provided sink for adapter-level events (source, tool.call, ...)
     cancelled: asyncio.Event | None = None
+    page_cache: dict[str, str] = field(default_factory=dict)  # normalized URL -> rendered page (per job)
 
     def record_source(self, src: Source) -> bool:
         new = src.source_id not in self.sources

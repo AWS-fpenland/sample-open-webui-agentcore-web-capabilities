@@ -123,9 +123,13 @@ async def agentcore_fetch_page(config: AgentCoreFetchPageConfig, builder: Builde
         ctx = get_run_context()
         if ctx and ctx.cancelled is not None and ctx.cancelled.is_set():
             return "Error: research cancelled"
+        decision = evaluate_url(url, **policy)
+        if decision.allowed and ctx and decision.normalized in ctx.page_cache:
+            # Researchers often re-open the same page; serve the per-job cache (no new browser session, no budget).
+            ctx.note("tool.result", {"tool": "agentcore_fetch_page", "url": decision.normalized, "cached": True})
+            return ctx.page_cache[decision.normalized]
         if ctx and ctx.counters.get("pages", 0) >= config.max_pages_per_job:
             return f"Error: page budget exhausted ({config.max_pages_per_job} pages per job)"
-        decision = evaluate_url(url, **policy)
         if not decision.allowed:
             if ctx:
                 ctx.note("tool.result", {"tool": "agentcore_fetch_page", "url": str(url)[:200],
@@ -162,6 +166,11 @@ async def agentcore_fetch_page(config: AgentCoreFetchPageConfig, builder: Builde
             ctx.note("tool.result", {"tool": "agentcore_fetch_page", "url": final.normalized, "chars": len(text),
                                      "truncated": truncated, "http_status": result["status"], "seconds": result["seconds"],
                                      "browser_session": result["session_id"]})
-        return render(decision.normalized, final.normalized, result["title"], text, truncated)
+        rendered = render(decision.normalized, final.normalized, result["title"], text, truncated)
+        if ctx:
+            ctx.page_cache[decision.normalized] = rendered
+            if final.normalized != decision.normalized:
+                ctx.page_cache[final.normalized] = rendered
+        return rendered
 
     yield FunctionInfo.from_fn(_fetch, description=_fetch.__doc__)

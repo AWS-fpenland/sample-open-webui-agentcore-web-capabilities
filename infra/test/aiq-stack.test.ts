@@ -48,9 +48,9 @@ describe('AiqStack', () => {
   });
 
   test('guardrail, reaper and sandbox permissions are present and scoped', () => {
-    const t = synth({ imageTag: 'abc123' });
+    const t = synth({ imageTag: 'abc123', guardrailMode: 'enforce', guardrailFilters: { PROMPT_ATTACK: 'HIGH' } });
     t.hasResourceProperties('AWS::Bedrock::Guardrail', { Name: 'aiq-test-run-guardrail',
-      ContentPolicyConfig: { FiltersConfig: Match.arrayWith([Match.objectLike({ Type: 'PROMPT_ATTACK', InputStrength: 'HIGH' })]) } });
+      ContentPolicyConfig: { FiltersConfig: Match.arrayWith([Match.objectLike({ Type: 'PROMPT_ATTACK', InputStrength: 'HIGH', OutputStrength: 'NONE' })]) } });
     t.resourceCountIs('AWS::Bedrock::GuardrailVersion', 1);
     t.hasResourceProperties('AWS::Lambda::Function', { FunctionName: 'aiq-test-run-reaper', Runtime: 'python3.12',
       Environment: { Variables: Match.objectLike({ STALE_AFTER_SECONDS: '600' }) } });
@@ -66,9 +66,44 @@ describe('AiqStack', () => {
     expect(sandbox.Resource).not.toContain('*');
   });
 
-  test('guardrail can be disabled', () => {
-    const t = synth({ imageTag: 'abc123', guardrail: false });
+  test('guardrail is off by default: no resource, nothing in the request path, mode exported to the runtime', () => {
+    const t = synth({ imageTag: 'abc123' });
     t.resourceCountIs('AWS::Bedrock::Guardrail', 0);
+    t.resourceCountIs('AWS::Bedrock::GuardrailVersion', 0);
+    t.hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
+      EnvironmentVariables: Match.objectLike({ AIQ_GUARDRAIL_MODE: 'off' }),
+    });
+    const env = Object.values(t.findResources('AWS::BedrockAgentCore::Runtime'))[0].Properties.EnvironmentVariables;
+    expect(env.AIQ_GUARDRAIL_ID).toBeUndefined();
+    expect(JSON.stringify(t.findResources('AWS::IAM::Policy'))).not.toContain('bedrock:ApplyGuardrail');
+  });
+
+  test('audit mode creates the guardrail with tunable defaults (no prompt-attack filter) and never blocks', () => {
+    const t = synth({ imageTag: 'abc123', guardrailMode: 'audit' });
+    t.resourceCountIs('AWS::Bedrock::Guardrail', 1);
+    const filters = Object.values(t.findResources('AWS::Bedrock::Guardrail'))[0].Properties.ContentPolicyConfig.FiltersConfig;
+    expect(filters.map((f: { Type: string }) => f.Type).sort()).toEqual(['HATE', 'INSULTS', 'MISCONDUCT', 'SEXUAL', 'VIOLENCE']);
+    expect(filters.find((f: { Type: string }) => f.Type === 'HATE')).toEqual({ Type: 'HATE', InputStrength: 'MEDIUM', OutputStrength: 'MEDIUM' });
+    t.hasResourceProperties('AWS::BedrockAgentCore::Runtime', {
+      EnvironmentVariables: Match.objectLike({ AIQ_GUARDRAIL_MODE: 'audit', AIQ_GUARDRAIL_ID: Match.anyValue(), AIQ_GUARDRAIL_VERSION: Match.anyValue() }),
+    });
+    t.hasOutput('GuardrailMode', { Value: 'audit' });
+  });
+
+  test('filter strengths are tunable and validated', () => {
+    const t = synth({ imageTag: 'abc123', guardrailMode: 'enforce', guardrailFilters: { PROMPT_ATTACK: 'LOW', HATE: 'NONE', VIOLENCE: 'HIGH' } });
+    const filters = Object.values(t.findResources('AWS::Bedrock::Guardrail'))[0].Properties.ContentPolicyConfig.FiltersConfig;
+    expect(filters).toEqual(expect.arrayContaining([
+      { Type: 'PROMPT_ATTACK', InputStrength: 'LOW', OutputStrength: 'NONE' },
+      { Type: 'VIOLENCE', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
+    ]));
+    expect(filters.find((f: { Type: string }) => f.Type === 'HATE')).toBeUndefined();
+    expect(() => synth({ imageTag: 'abc123', guardrailMode: 'enforce', guardrailFilters: { HATE: 'EXTREME' as never } })).toThrow(/HATE strength/);
+    expect(() => synth({ imageTag: 'abc123', guardrailMode: 'audit', guardrailFilters: {
+      PROMPT_ATTACK: 'NONE', HATE: 'NONE', INSULTS: 'NONE', SEXUAL: 'NONE', VIOLENCE: 'NONE', MISCONDUCT: 'NONE' } })).toThrow(/at least one filter/);
+    expect(() => synth({ imageTag: 'abc123', guardrailMode: 'loud' as never })).toThrow(/guardrailMode must be one of/);
+    // legacy boolean still works
+    synth({ imageTag: 'abc123', guardrail: true }).resourceCountIs('AWS::Bedrock::Guardrail', 1);
   });
 
   test('phase 2 adds a JWT-authorized HTTP runtime that forwards Authorization and pins the digest', () => {

@@ -4,7 +4,7 @@
 title: AI-Q Research on AgentCore
 id: aiq_agentcore
 description: NVIDIA AI-Q research agents running on Amazon Bedrock AgentCore Runtime — quick cited answers, deep multi-phase research with progress, reconnect, cancel, clarification, and per-user document collections.
-version: 0.1.0
+version: 0.2.0
 license: MIT-0
 """
 
@@ -425,7 +425,12 @@ class Pipe:
         elif t == "guardrail":
             act = d.get("action")
             if act in ("GUARDRAIL_INTERVENED", "MODIFIED", "ERROR"):
-                await status(f"Content policy ({d.get('source', '').lower()}): {act.lower().replace('_', ' ')}", done=True)
+                label = act.lower().replace("_", " ")
+                if d.get("enforced") is False:
+                    label += f" ({d.get('mode', 'audit')} mode, not enforced)"
+                reasons = ", ".join(str(r) for r in (d.get("reasons") or [])[:3])
+                await status(f"Content policy ({d.get('source', '').lower()}): {label}" + (f" · {reasons}" if reasons else ""),
+                             done=True)
         elif t == "artifact":
             name = d.get("name") or "artifact"
             if d.get("markdown"):

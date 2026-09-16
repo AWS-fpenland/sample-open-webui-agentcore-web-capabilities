@@ -46,6 +46,31 @@ def emit_job_metrics(*, mode: str, outcome: str, seconds: float, usage: dict[str
         "Outcome": outcome,
         **metrics,
     }
+    _write(record)
+
+
+def emit_guardrail_metric(*, source: str, action: str, mode: str) -> None:
+    """One record per non-trivial guardrail assessment (GUARDRAIL_INTERVENED / MODIFIED / ERROR) so operators can
+    see what an `audit`-mode policy *would* block before switching it to `enforce`."""
+    record = {
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [{
+                "Namespace": NAMESPACE,
+                "Dimensions": [["RunId", "GuardrailMode", "Source", "Action"]],
+                "Metrics": [{"Name": "GuardrailAssessments", "Unit": "Count"}],
+            }],
+        },
+        "RunId": os.environ.get("AIQ_RUN_ID", "unknown"),
+        "GuardrailMode": mode,
+        "Source": source,
+        "Action": action,
+        "GuardrailAssessments": 1,
+    }
+    _write(record)
+
+
+def _write(record: dict[str, Any]) -> None:
     # Leading newline: other loggers may leave stdout mid-line, which makes EMF unparsable.
     sys.stdout.write("\n" + json.dumps(record) + "\n")
     sys.stdout.flush()

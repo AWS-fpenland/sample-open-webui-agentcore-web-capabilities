@@ -35,6 +35,17 @@ import { Construct } from 'constructs';
  *    the image must exist first), CUSTOM_JWT authorizer trusting the Open WebUI
  *    Cognito app client, HTTP protocol, Authorization header forwarded.
  */
+export const GUARDRAIL_MODES = ['off', 'audit', 'enforce'] as const;
+export type GuardrailMode = (typeof GUARDRAIL_MODES)[number];
+export const GUARDRAIL_STRENGTHS = ['NONE', 'LOW', 'MEDIUM', 'HIGH'] as const;
+export type GuardrailStrength = (typeof GUARDRAIL_STRENGTHS)[number];
+export type GuardrailFilterType = 'PROMPT_ATTACK' | 'HATE' | 'INSULTS' | 'SEXUAL' | 'VIOLENCE' | 'MISCONDUCT';
+/** Defaults used when a guardrail is enabled. PROMPT_ATTACK stays NONE: legitimate research requests are imperative
+ *  by nature ("deeply research X and build me a package"), which that filter mistakes for instruction overrides. */
+export const DEFAULT_GUARDRAIL_FILTERS: Record<GuardrailFilterType, GuardrailStrength> = {
+  PROMPT_ATTACK: 'NONE', HATE: 'MEDIUM', INSULTS: 'MEDIUM', SEXUAL: 'MEDIUM', VIOLENCE: 'LOW', MISCONDUCT: 'LOW',
+};
+
 export interface AiqModels {
   readonly router: string;
   readonly shallow: string;
@@ -60,7 +71,14 @@ export interface AiqStackProps extends cdk.StackProps {
   readonly retentionDays?: number;
   /** Extra runtime environment variables (never secrets). */
   readonly runtimeEnvironment?: Record<string, string>;
-  /** Create an Amazon Bedrock Guardrail and apply it at the adapter boundary (default true). */
+  /** Content policy at the adapter boundary (Amazon Bedrock Guardrail). 'off' (default): no guardrail resource and
+   *  nothing in the request path. 'audit': every input/output is assessed and the assessment is journaled and metered,
+   *  but nothing is blocked or rewritten. 'enforce': blocked inputs fail the job, blocked outputs are withheld. */
+  readonly guardrailMode?: GuardrailMode;
+  /** Per-filter strengths (NONE|LOW|MEDIUM|HIGH) merged over DEFAULT_GUARDRAIL_FILTERS; applied to INPUT and OUTPUT
+   *  (PROMPT_ATTACK is INPUT-only by service definition). Ignored when guardrailMode is 'off'. */
+  readonly guardrailFilters?: Partial<Record<GuardrailFilterType, GuardrailStrength>>;
+  /** @deprecated Use guardrailMode. `true` maps to 'enforce'; anything else to 'off'. */
   readonly guardrail?: boolean;
   /** Fail shallow answers whose citations cannot be verified (upstream enforce_citations; default true). */
   readonly enforceCitations?: boolean;
@@ -481,44 +499,50 @@ export class AiqStack extends cdk.Stack {
     }));
 
     // ── Amazon Bedrock Guardrail (native replacement for AI-Q's optional NeMo Guardrails) ──
-    let guardrailEnv: Record<string, string> = {};
-    if (props.guardrail !== false) {
+    // Off by default for this workload; operators opt in per deployment (-c guardrailMode=audit|enforce) and tune each
+    // filter's strength (-c guardrailPromptAttack=… -c guardrailHate=… …). 'audit' assesses and journals without blocking.
+    const guardrailMode: GuardrailMode = props.guardrailMode ?? (props.guardrail === true ? 'enforce' : 'off');
+    if (!GUARDRAIL_MODES.includes(guardrailMode)) {
+      throw new Error(`guardrailMode must be one of ${GUARDRAIL_MODES.join('|')} (got ${guardrailMode})`);
+    }
+    const guardrailEnv: Record<string, string> = { AIQ_GUARDRAIL_MODE: guardrailMode };
+    if (guardrailMode !== 'off') {
+      const strengths: Record<GuardrailFilterType, GuardrailStrength> = { ...DEFAULT_GUARDRAIL_FILTERS, ...(props.guardrailFilters ?? {}) };
+      for (const [type, strength] of Object.entries(strengths)) {
+        if (!GUARDRAIL_STRENGTHS.includes(strength)) {
+          throw new Error(`guardrail filter ${type} strength must be one of ${GUARDRAIL_STRENGTHS.join('|')} (got ${strength})`);
+        }
+      }
+      const filters = (Object.keys(strengths) as GuardrailFilterType[])
+        .filter((type) => strengths[type] !== 'NONE')
+        .map((type) => ({ Type: type, InputStrength: strengths[type], OutputStrength: type === 'PROMPT_ATTACK' ? 'NONE' : strengths[type] }));
+      if (filters.length === 0) throw new Error(`guardrailMode=${guardrailMode} needs at least one filter strength above NONE`);
       const guardrail = new cdk.CfnResource(this, 'Guardrail', {
         type: 'AWS::Bedrock::Guardrail',
         properties: {
           Name: `${prefix}-guardrail`,
-          Description: `AI-Q ${runId}: input prompt-attack/content screening and output content screening`,
-          BlockedInputMessaging: 'This research request was blocked by the content policy. Please rephrase it.',
+          Description: `AI-Q ${runId}: ${guardrailMode} mode; ${filters.map((f) => `${f.Type}=${f.InputStrength}`).join(',')}`,
+          BlockedInputMessaging: 'This research request was blocked by the content policy. Rephrase it, or ask the operator to lower the filter strength or switch the guardrail to audit mode.',
           BlockedOutputsMessaging: 'Part of this report was withheld by the content policy.',
-          ContentPolicyConfig: {
-            FiltersConfig: [
-              { Type: 'PROMPT_ATTACK', InputStrength: 'HIGH', OutputStrength: 'NONE' },
-              { Type: 'HATE', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
-              { Type: 'INSULTS', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
-              { Type: 'SEXUAL', InputStrength: 'HIGH', OutputStrength: 'HIGH' },
-              { Type: 'VIOLENCE', InputStrength: 'MEDIUM', OutputStrength: 'MEDIUM' },
-              { Type: 'MISCONDUCT', InputStrength: 'MEDIUM', OutputStrength: 'MEDIUM' },
-            ],
-          },
-          Tags: [{ Key: 'aiq:run-id', Value: runId }],
+          ContentPolicyConfig: { FiltersConfig: filters },
+          Tags: [{ Key: 'aiq:run-id', Value: runId }, { Key: 'aiq:guardrail-mode', Value: guardrailMode }],
         },
       });
       guardrail.applyRemovalPolicy(cdk.RemovalPolicy.DESTROY);
       const guardrailVersion = new cdk.CfnResource(this, 'GuardrailVersion', {
         type: 'AWS::Bedrock::GuardrailVersion',
-        properties: { GuardrailIdentifier: guardrail.getAtt('GuardrailId').toString(), Description: 'v1 for AI-Q on AgentCore' },
+        properties: { GuardrailIdentifier: guardrail.getAtt('GuardrailId').toString(), Description: `${guardrailMode} for AI-Q on AgentCore` },
       });
       runtimeRole.addToPolicy(new iam.PolicyStatement({
         sid: 'ApplyGuardrail',
         actions: ['bedrock:ApplyGuardrail'],
         resources: [guardrail.getAtt('GuardrailArn').toString()],
       }));
-      guardrailEnv = {
-        AIQ_GUARDRAIL_ID: guardrail.getAtt('GuardrailId').toString(),
-        AIQ_GUARDRAIL_VERSION: guardrailVersion.getAtt('Version').toString(),
-      };
+      guardrailEnv.AIQ_GUARDRAIL_ID = guardrail.getAtt('GuardrailId').toString();
+      guardrailEnv.AIQ_GUARDRAIL_VERSION = guardrailVersion.getAtt('Version').toString();
       new cdk.CfnOutput(this, 'GuardrailId', { value: guardrail.getAtt('GuardrailId').toString() });
     }
+    new cdk.CfnOutput(this, 'GuardrailMode', { value: guardrailMode });
 
     // ── Stale-job reaper: marks jobs whose runtime session died as failed (heartbeat > 10 min old) ──
     const reaper = new lambda.Function(this, 'StaleJobReaper', {

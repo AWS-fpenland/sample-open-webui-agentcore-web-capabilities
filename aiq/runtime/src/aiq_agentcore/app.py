@@ -125,8 +125,10 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
         gr_in = await loop.run_in_executor(None, guardrails.apply, req.question, "INPUT")
         if gr_in.action not in ("DISABLED", "NONE"):
             yield st.append_event(tenant, job_id, EventType.GUARDRAIL, {"source": "INPUT", "action": gr_in.action,
+                                                                          "mode": gr_in.mode, "enforced": gr_in.enforced,
                                                                           "reasons": gr_in.reasons})
-        if gr_in.blocked or gr_in.action == "ERROR":
+            metrics.emit_guardrail_metric(source="INPUT", action=gr_in.action, mode=gr_in.mode)
+        if gr_in.blocked or (gr_in.action == "ERROR" and gr_in.enforced):
             code = ErrorCode.INVALID_REQUEST if gr_in.blocked else ErrorCode.INTERNAL
             msg = gr_in.text if gr_in.blocked else "content policy check unavailable; request not processed"
             st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=msg[:500])
@@ -155,8 +157,10 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
                 gr_out = await loop.run_in_executor(None, guardrails.apply, ev.data["text"], "OUTPUT")
                 if gr_out.action not in ("DISABLED", "NONE"):
                     st.append_event(tenant, job_id, EventType.GUARDRAIL, {"source": "OUTPUT", "action": gr_out.action,
+                                                                            "mode": gr_out.mode, "enforced": gr_out.enforced,
                                                                             "reasons": gr_out.reasons})
-                    if gr_out.blocked or gr_out.action == "MODIFIED":
+                    metrics.emit_guardrail_metric(source="OUTPUT", action=gr_out.action, mode=gr_out.mode)
+                    if gr_out.enforced and (gr_out.blocked or gr_out.action == "MODIFIED"):
                         ev.data["text"] = gr_out.text
                         ev.data["guardrail_action"] = gr_out.action
                 key = st.report_key(tenant, job_id)
@@ -438,6 +442,7 @@ async def invoke(payload: dict[str, Any], context) -> AsyncIterator[str]:
     try:
         if body.op == Op.HEALTH:
             yield _line({"type": "health", "seq": 0, "data": {
+                "guardrail": guardrails.describe(),
                 "version": __version__, "engine": os.environ.get("AIQ_ENGINE", "aiq"),
                 "source_commit": os.environ.get("AIQ_SOURCE_COMMIT"), "upstream_ref": os.environ.get("AIQ_UPSTREAM_REF"),
                 "tenant": principal.tenant_key, "active_jobs": len(_tasks)}})

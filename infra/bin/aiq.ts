@@ -10,7 +10,7 @@
 //     -c userPoolId=<pool> -c allowedClients=<client-id>[,<client-id>] \
 //     [-c imageTag=<tag> | -c imageDigest=sha256:...]
 import * as cdk from 'aws-cdk-lib';
-import { AiqStack } from '../lib/aiq-stack';
+import { AiqStack, GuardrailFilterType, GuardrailMode, GuardrailStrength } from '../lib/aiq-stack';
 
 const app = new cdk.App();
 if (app.node.tryGetContext('aiq') !== 'on') {
@@ -32,6 +32,20 @@ const imageTag = app.node.tryGetContext('imageTag') as string | undefined;
 const imageDigest = app.node.tryGetContext('imageDigest') as string | undefined;
 const model = (key: string, fallback: string): string => (app.node.tryGetContext(key) as string | undefined) ?? fallback;
 
+// Content policy is OFF by default for this research workload. Opt in with -c guardrailMode=audit|enforce and tune
+// each filter with -c guardrailPromptAttack|guardrailHate|guardrailInsults|guardrailSexual|guardrailViolence|guardrailMisconduct=NONE|LOW|MEDIUM|HIGH.
+const legacyGuardrail = app.node.tryGetContext('guardrail') as string | undefined; // older on|off flag
+const guardrailMode = ((app.node.tryGetContext('guardrailMode') as string | undefined) ?? (legacyGuardrail === 'on' ? 'enforce' : 'off')) as GuardrailMode;
+const guardrailFilters: Partial<Record<GuardrailFilterType, GuardrailStrength>> = {};
+const guardrailFilterContext: Record<string, GuardrailFilterType> = {
+  guardrailPromptAttack: 'PROMPT_ATTACK', guardrailHate: 'HATE', guardrailInsults: 'INSULTS',
+  guardrailSexual: 'SEXUAL', guardrailViolence: 'VIOLENCE', guardrailMisconduct: 'MISCONDUCT',
+};
+for (const [ctxKey, filterType] of Object.entries(guardrailFilterContext)) {
+  const v = app.node.tryGetContext(ctxKey) as string | undefined;
+  if (v) guardrailFilters[filterType] = v.toUpperCase() as GuardrailStrength;
+}
+
 new AiqStack(app, `aiq-${runId}`, {
   env: { account, region },
   runId,
@@ -40,7 +54,8 @@ new AiqStack(app, `aiq-${runId}`, {
   imageTag,
   imageDigest,
   retentionDays: Number(app.node.tryGetContext('retentionDays') ?? 30),
-  guardrail: app.node.tryGetContext('guardrail') !== 'off',
+  guardrailMode,
+  guardrailFilters,
   enforceCitations: app.node.tryGetContext('enforceCitations') !== 'false',
   fetchMaxPages: Number(app.node.tryGetContext('fetchMaxPages') ?? 12),
   maxTokensDeep: Number(app.node.tryGetContext('maxTokensDeep') ?? 16384),

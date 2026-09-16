@@ -1,5 +1,12 @@
 # AgentCore web capabilities: explicit native-loop canary
 
+For the supported shared-attribution **native Web Search toggle** phase, use
+[Native AgentCore web search](NATIVE_WEB_OPERATIONS.md). This document describes
+the earlier explicit-tool alternative and its isolated resource prerequisites.
+Do not rerun this canary configurator against an enabled native deployment: its
+original precondition requires global native search off. The native phase does
+not change existing canary Tool/Filter code or its subject restrictions.
+
 Status: experimental, public-read-only functional canary. Deployment and live
 acceptance are separate from local contract tests. Do not enable for general users
 or describe this as native-toggle integration merely because tool names match.

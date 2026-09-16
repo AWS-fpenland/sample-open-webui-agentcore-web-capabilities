@@ -170,6 +170,7 @@ Key boundaries:
 | Goal | Read |
 |---|---|
 | Evaluate AgentCore identity and model routing | [Gateway integration guide](docs/GATEWAY_INTEGRATION_GUIDE.md) |
+| Add native web search with shared-service accounting | [Native AgentCore web search](docs/NATIVE_WEB_OPERATIONS.md) |
 | Deploy, validate, operate, or remove the sample | [AWS deployment guide](docs/AWS_DEPLOYMENT_GUIDE.md) |
 | Evaluate consumption governance | [Metering contract and operator guide](docs/METERING.md) |
 | Build a workload-specific estimate | [Cost planning](docs/COSTS.md) |

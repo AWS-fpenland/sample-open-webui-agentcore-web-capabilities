@@ -32,6 +32,9 @@ It is the supported consumer deployment path and owns troubleshooting.
 
 ### Operate and change
 
+- [Native AgentCore web search](NATIVE_WEB_OPERATIONS.md) — supported native toggle
+  and external loader, shared-service accounting, selective Browser and rollback.
+
 - [Metering, consumption governance, and quotas](METERING.md) — enablement,
   policy semantics, pricing coverage, console behavior, alarms, recovery, and
   failure posture.

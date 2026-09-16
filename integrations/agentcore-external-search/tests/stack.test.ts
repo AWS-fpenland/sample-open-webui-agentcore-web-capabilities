@@ -248,10 +248,14 @@ test('bearer-authenticated public URL is alias-qualified with constrained runtim
 
 test('default gateway name includes stack identity; explicit safe names are supported', () => {
   const defaultName = Template.fromStack(stack()).toJSON().Resources.SearchGateway.Properties.Name;
-  assert.ok((JSON.stringify(defaultName)).includes('search-openwebui-externalsearch-'));
+  assert.ok((JSON.stringify(defaultName)).includes('search-openwebu-'));
   assert.ok((JSON.stringify(defaultName)).includes('AWS::StackId'));
+  const resolvedName = defaultName['Fn::Join'][1][0] + 'f4930a20-b1da-11f1-91f6-0affdffb0835';
+  assert.match(resolvedName, /^([0-9a-zA-Z][-]?){1,48}$/);
   assert.equal(Template.fromStack(stack(env, 'my-private-search')).toJSON().Resources.SearchGateway.Properties.Name, 'my-private-search');
   assert.throws(() => stack(env, 'invalid/name'), /gatewayName/);
+  assert.throws(() => stack(env, 'a'.repeat(49)), /gatewayName/);
+  assert.throws(() => stack(env, 'invalid--name'), /gatewayName/);
 });
 
 testCases(['', 'relative/bundle', '/does/not/exist'])('asset path %s must be a prebuilt absolute directory', asset => {

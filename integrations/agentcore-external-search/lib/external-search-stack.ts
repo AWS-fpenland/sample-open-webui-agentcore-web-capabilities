@@ -29,8 +29,8 @@ export class ExternalSearchStack extends cdk.Stack {
       throw new Error(`Search requires an explicit supported region: ${SEARCH_REGIONS.join(', ')}`);
     }
     if (props.gatewayName !== undefined && (typeof props.gatewayName !== 'string'
-      || !/^[A-Za-z][A-Za-z0-9-]{0,98}[A-Za-z0-9]$/.test(props.gatewayName))) {
-      throw new Error('gatewayName must be 2-100 alphanumeric/hyphen characters, starting with a letter and ending alphanumeric');
+      || !/^([0-9a-zA-Z][-]?){1,48}$/.test(props.gatewayName))) {
+      throw new Error('gatewayName must match the Gateway schema: 1-48 alphanumeric characters, each optionally followed by one hyphen');
     }
     const code = searchAsset(props.assetPath);
     const logGroup = (name: string): logs.LogGroup => new logs.LogGroup(this, name, {
@@ -57,7 +57,7 @@ export class ExternalSearchStack extends cdk.Stack {
       },
     });
     const suffix = cdk.Fn.select(2, cdk.Fn.split('/', this.stackId));
-    const defaultName = `search-${this.stackName.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 50)}-${suffix}`;
+    const defaultName = `search-${this.stackName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'owui'}-${suffix}`;
     const gateway = new agentcore.CfnGateway(this, 'SearchGateway', {
       name: props.gatewayName ?? defaultName,
       roleArn: gatewayRole.roleArn,

@@ -60,7 +60,9 @@ RUN uv pip freeze --python /opt/venv/bin/python > /tmp/before.txt \
     && echo "== dependency deviations from upstream lock (only lines that changed) ==" \
     && (diff <(grep -v '^-e\|^aiq' /tmp/before.txt) <(grep -v '^-e\|^aiq' /tmp/after.txt) || true) \
     && python -c "import aiq_agentcore, aiq_agentcore.app, aiq_agentcore.engine_aiq, aiq_agentcore.nat_plugins.web_search, aiq_agentcore.nat_plugins.knowledge, aiq_agent, nat, langchain_aws, bedrock_agentcore, sys; print('aiq_agentcore', aiq_agentcore.__version__, 'python', sys.version.split()[0])" \
-    && python -c "import importlib.metadata as m; print({p: m.version(p) for p in ['nvidia-nat-core','langchain-aws','nemo-relay','deepagents','bedrock-agentcore','boto3','pydantic','uvicorn','starlette']})"
+    && python -c "import importlib.metadata as m; print({p: m.version(p) for p in ['nvidia-nat-core','langchain-aws','nemo-relay','deepagents','bedrock-agentcore','boto3','pydantic','uvicorn','starlette']})" \
+    && python -c "from aiq_agentcore.sandbox_agentcore import AgentCoreCodeInterpreterProvider as P; assert P is not None and isinstance(P, type), 'sandbox provider class missing'; import aiq_agentcore.nat_plugins.sandbox; from aiq_agent.agents.deep_researcher.sandbox.registry import registered_providers; assert 'agentcore_code_interpreter' in registered_providers(), registered_providers(); print('sandbox provider registered')" \
+    && python -c "from aiq_agentcore import aiq_api_shim; assert aiq_api_shim.install(); from aiq_api.jobs.report_context import resolve_authorized_report_context; print('aiq_api shim ok')"
 
 # Non-root; AgentCore contract: HTTP :8080 with POST /invocations and GET /ping
 RUN useradd --create-home --uid 10001 aiq && mkdir -p /app/state && chown -R aiq:aiq /app /opt/aiq

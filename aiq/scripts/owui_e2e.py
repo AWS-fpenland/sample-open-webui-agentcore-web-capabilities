@@ -56,7 +56,21 @@ def login(page, url: str, username: str, password: str, out_dir: str) -> dict:
                 break
     shot(page, out_dir, "01-login-page.png")
     # Cognito Managed Login renders a React form; attribute names vary, so locate by role/placeholder with fallbacks.
-    page.wait_for_selector("input:not([type='hidden'])", state="attached", timeout=45_000)
+    try:
+        page.wait_for_selector("input:not([type='hidden'])", state="attached", timeout=45_000)
+    except Exception:
+        # Diagnostics for the harness: where are we and what does the DOM contain?
+        info = page.evaluate("() => ({url: location.href, inputs: document.querySelectorAll('input').length, "
+                             "frames: window.frames.length, title: document.title, text: (document.body ? document.body.innerText : '').slice(0, 300)})")
+        print(f"# login page diagnostics: {info}", file=sys.stderr)
+        shot(page, out_dir, "01b-login-timeout.png")
+        for fr in page.frames[1:]:
+            try:
+                if fr.locator("input").count():
+                    print(f"# login inputs found in frame {fr.url}", file=sys.stderr)
+            except Exception:
+                pass
+        raise
     page.wait_for_timeout(1000)
     pw = page.locator("input[type='password']")
     if pw.count() == 0:

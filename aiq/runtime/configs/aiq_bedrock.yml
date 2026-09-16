@@ -122,8 +122,25 @@ functions:
     enforce_citations: ${AIQ_ENFORCE_CITATIONS:-true}
     exclude_tools:
       - fetch_page_tool
+  deep_research_skills:
+    _type: deep_research_skills
+    agents:
+      researcher-agent: [research]
+      writer-agent: [synthesis, visualization]
+    require_sandbox:
+      - research
+  deep_research_sandbox:
+    _type: deep_research_sandbox
+    provider: agentcore_code_interpreter
+    workdir: /tmp/aiq
+    timeout: 900
+    network: open
+    artifact_capture:
+      enabled: false
   deep_research_agent:
     _type: deep_research_agent
+    skills: deep_research_skills
+    sandbox: deep_research_sandbox
     enable_citation_verification: true
     orchestrator_llm: planner_llm
     source_router_llm: planner_llm

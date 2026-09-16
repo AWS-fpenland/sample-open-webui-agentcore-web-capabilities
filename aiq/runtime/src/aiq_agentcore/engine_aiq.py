@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-from . import bedrock_compat
+from . import aiq_api_shim, bedrock_compat
 from .contracts import EventType, ResearchMode
 from .engine_base import Engine, EngineEvent, EngineRequest
 from .run_context import RunContext, reset_run_context, set_run_context
@@ -66,12 +66,21 @@ class AiqEngine(Engine):
         self._stacks: dict[bool, contextlib.AsyncExitStack] = {}
         self._lock = asyncio.Lock()
         bedrock_compat.apply()
+        aiq_api_shim.install()  # report follow-ups (ask/edit/delta) without the upstream job service
 
     # ------------------------------------------------------------------ workflow lifecycle --
     def _variant_config(self, clarifier: bool) -> str:
         with open(self.config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         cfg.setdefault("workflow", {})["enable_clarifier"] = bool(clarifier)
+        # Sandboxed skills (AgentCore Code Interpreter) are on by default; AIQ_SANDBOX=off removes them.
+        if os.environ.get("AIQ_SANDBOX", "on").lower() in ("off", "false", "0"):
+            fns = cfg.get("functions", {})
+            fns.pop("deep_research_skills", None)
+            fns.pop("deep_research_sandbox", None)
+            agent = fns.get("deep_research_agent", {})
+            agent.pop("skills", None)
+            agent.pop("sandbox", None)
         # Optional per-role Bedrock request fields from env (e.g. Nemotron `reasoning_effort`, Claude extended thinking).
         # AIQ_REASONING_EFFORT_<ROLE> in {none, minimal, low, medium, high, xhigh, max} adds
         # additional_model_request_fields.reasoning_effort to that role; unset = provider default.
@@ -176,6 +185,32 @@ class AiqEngine(Engine):
                               "verified": False, "match_level": "unmatched", "reason": c.get("reason")})
         return {"citations": citations, "verified": len(res.valid_citations), "unverified": len(res.removed_citations),
                 "sources_retrieved": len(ctx.sources), "verified_report": res.verified_report}
+
+    def _publish_artifacts(self, req: EngineRequest, ctx: RunContext) -> list[EngineEvent]:
+        """Sandbox artifacts harvested by the provider → S3 (tenant-prefixed) + `artifact` events (images inline ≤1 MB)."""
+        from .sandbox_agentcore import take_artifacts
+        from .store import JobStore
+
+        events: list[EngineEvent] = []
+        found = take_artifacts(req.job_id)
+        if not found:
+            return events
+        store = JobStore()
+        import base64 as _b64
+        for art in found:
+            key = store.report_key(req.principal.tenant_key, req.job_id, f"artifacts/{art.name}")
+            ctype = {"image": "image/png" if art.name.lower().endswith(".png") else "image/jpeg",
+                     "dataset": "text/csv" if art.name.lower().endswith(".csv") else "application/json",
+                     "document": "text/markdown", "text": "text/plain"}.get(art.kind, "application/octet-stream")
+            store._s3.put_object(Bucket=store.bucket, Key=key, Body=art.content, ContentType=ctype)
+            data: dict[str, Any] = {"name": art.name, "kind": art.kind, "size_bytes": len(art.content), "s3_key": key}
+            if art.kind == "image" and len(art.content) <= 1_000_000:
+                data["markdown"] = f"![{art.name}](data:{ctype};base64,{_b64.b64encode(art.content).decode()})"
+            elif art.kind in ("dataset", "text", "document") and len(art.content) <= 20_000:
+                fence = "csv" if art.name.lower().endswith(".csv") else ""
+                data["markdown"] = f"**{art.name}**\n\n```{fence}\n{art.content.decode('utf-8', 'replace')[:20000]}\n```"
+            events.append(EngineEvent(EventType.ARTIFACT, data))
+        return events
 
     # ------------------------------------------------------------------ run --
     async def run(self, req: EngineRequest, cancelled: asyncio.Event) -> AsyncIterator[EngineEvent]:
@@ -312,6 +347,8 @@ class AiqEngine(Engine):
             verification = self._verify(text, ctx) if ctx.sources else {"citations": [], "verified": 0, "unverified": 0,
                                                                           "sources_retrieved": 0, "verified_report": text}
             final_text = verification.pop("verified_report") or text
+            for art in self._publish_artifacts(req, ctx):
+                yield art
             yield EngineEvent(EventType.CITATIONS, verification)
             yield EngineEvent(EventType.REPORT, {"text": final_text, "sources": [s.model_dump() for s in ctx.sources.values()],
                                                  "mode": mode.value, "depth": depth})

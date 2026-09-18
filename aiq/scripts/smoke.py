@@ -49,6 +49,9 @@ def runtime_arn(run_id: str, region: str) -> str:
     return outs["RuntimeArn"]
 
 
+FULL = os.environ.get("SMOKE_FULL") == "1"  # print whole event lines (phase-3 responses can exceed 600 chars)
+
+
 def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, timeout: float = 900.0):
     url = f"https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{quote(arn, safe='')}/invocations?qualifier=DEFAULT"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
@@ -78,7 +81,8 @@ def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, ti
             if first is None:
                 first = time.monotonic() - t0
             events.append(obj)
-            print(json.dumps(obj, ensure_ascii=False)[:600])
+            line_out = json.dumps(obj, ensure_ascii=False)
+            print(line_out if FULL else line_out[:600])
     print(f"# ttfb={first and round(first, 2)}s total={round(time.monotonic() - t0, 2)}s events={len(events)}", file=sys.stderr)
     return events
 

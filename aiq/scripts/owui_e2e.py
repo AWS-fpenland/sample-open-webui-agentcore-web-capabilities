@@ -160,6 +160,9 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
     else:
         page.keyboard.type(prompt)
     page.wait_for_timeout(500)
+    if prompt.startswith("/"):  # dismiss Open WebUI's slash prompt picker so Enter sends the text as typed
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
     page.keyboard.press("Enter")
     t0 = time.time()
     page.wait_for_timeout(3000)
@@ -206,8 +209,13 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         if box.evaluate("e => e.tagName") == "TEXTAREA":
             box.fill(fu)
         else:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
             page.keyboard.type(fu)
         page.wait_for_timeout(400)
+        if fu.startswith("/"):
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(200)
         page.keyboard.press("Enter")
         t1 = time.time()
         page.wait_for_timeout(3000)

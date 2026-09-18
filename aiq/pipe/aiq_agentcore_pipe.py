@@ -260,7 +260,11 @@ class Pipe:
             if m.get("role") != "user" or not isinstance(m.get("content"), str):
                 continue
             text = m["content"].strip()
-            if not text.lower().startswith("/model"):
+            if text.lower().startswith("aiq model"):
+                text = "/" + text.split(None, 1)[1]
+            if text.lower().startswith("/models/model "):
+                text = text[len("/models"):]
+            if not text.lower().startswith("/model") or text.lower().startswith("/models"):
                 continue
             if text.lower().strip() in ("/model reset", "/model clear"):
                 out = {}
@@ -433,6 +437,13 @@ class Pipe:
         sess_ctl = self._session_id("ctl", chat_id, user_id)
 
         # ---- slash commands -------------------------------------------------
+        # Open WebUI opens its prompt picker on a leading "/" and may glue the next message onto the chip; accept the
+        # same commands as `aiq <command>` (e.g. "aiq models", "aiq model writer=…") and unglue "/models/model …".
+        if question.lower().startswith("aiq ") and len(question.split()) > 1:
+            question = "/" + question.split(None, 1)[1]
+        m_glued = re.match(r"^(/[a-z]+)(/[a-z]+\b.*)$", question, re.IGNORECASE | re.DOTALL)
+        if m_glued and m_glued.group(1).lower() in COMMANDS and m_glued.group(2).split()[0].lower() in COMMANDS:
+            question = m_glued.group(2).strip()  # the later command wins (the first one was the stuck chip)
         cmd = question.split()[0].lower() if question else ""
         pending = self._pending_job(messages)
         session_models = {**self._models_from_valves(__user__), **self._models_from_chat(messages)}

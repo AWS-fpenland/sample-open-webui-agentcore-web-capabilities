@@ -60,7 +60,7 @@ def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, ti
     first = None
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=20.0)) as client, client.stream("POST", url, headers=headers,
                                                                                           json=payload) as resp:
-        print(f"# HTTP {resp.status_code} request-id={resp.headers.get('x-amzn-requestid')} trace={resp.headers.get('x-amzn-trace-id')}",
+        print(f"# HTTP {resp.status_code} request-id={resp.headers.get('x-amzn-requestid')} trace={resp.headers.get('x-amzn-trace-id')}",  # noqa: E501
               file=sys.stderr)
         if resp.status_code != 200:
             print(resp.read().decode()[:800], file=sys.stderr)
@@ -143,10 +143,10 @@ def main() -> int:
         ap.error(f"unknown op {op}")
         return 2
     events = invoke(arn, a.region, token, sid, payload)
-    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health", "packages", "package",
+    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health", "packages", "package",  # noqa: E501
                                                         "package.deleted", "comparison", "export", "artifact.url", "models",
                                                         "models.prefs", "models.validated", "eval.started", "evals")]
-    print(f"# session={sid} job_ids={sorted({e.get('job_id') for e in events if e.get('job_id')})} terminal={[e.get('type') for e in terminal][-1:]}",
+    print(f"# session={sid} job_ids={sorted({e.get('job_id') for e in events if e.get('job_id')})} terminal={[e.get('type') for e in terminal][-1:]}",  # noqa: E501
           file=sys.stderr)
     return 0
 

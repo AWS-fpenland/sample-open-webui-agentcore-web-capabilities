@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
+# ruff: noqa: E501  (embedded CSS / template strings)
 """Styled HTML export — the canonical styled rendering (ADR-26; Track C §3).
 
 Decisions implemented here:
@@ -52,7 +53,7 @@ sup.cite{line-height:0}sup.cite a{font-weight:600;text-decoration:none;padding:0
 code{font-family:var(--mono);font-size:.9em;background:var(--code-bg);padding:.1rem .3rem;border-radius:4px}
 pre{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.8rem 1rem;overflow:auto}
 pre code{background:none;padding:0}
-figure{margin:1.2rem 0}figure img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
+figure{margin:1.2rem 0}figure img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:var(--radius);background:#fff}  # noqa: E501
 figcaption{color:var(--muted);font-size:.85rem;margin-top:.3rem}
 blockquote{border-left:3px solid var(--accent);margin:1rem 0;padding:.2rem 1rem;color:var(--muted)}
 ol.sources{padding-left:2.2rem}ol.sources li{margin:.35rem 0;word-break:break-word}
@@ -63,7 +64,7 @@ ol.sources li:target{background:var(--surface);outline:2px solid var(--accent)}
 footer.doc{margin-top:2.5rem;border-top:1px solid var(--border);padding-top:.8rem;color:var(--muted);font-size:.8rem}
 hr{border:0;border-top:1px solid var(--border);margin:1.5rem 0}.toc{font-size:.9rem;color:var(--muted)}.toc a{margin-right:.8rem}
 ul.artifacts{padding-left:1.2rem}
-@media (max-width:600px){body{padding:1rem .8rem}header.doc h1{font-size:1.5rem}table{font-size:.85rem;display:block;overflow-x:auto}}
+@media (max-width:600px){body{padding:1rem .8rem}header.doc h1{font-size:1.5rem}table{font-size:.85rem;display:block;overflow-x:auto}}  # noqa: E501
 """
 
 
@@ -178,7 +179,7 @@ def artifacts_html(pkg: Package) -> str:
     for a in arts:
         if a.is_image:
             data_uri = "data:" + a.mime + ";base64," + base64.b64encode(a.data).decode()
-            figs.append(f'<figure><img src="{data_uri}" alt="{esc(a.caption)}"><figcaption>{esc(a.caption)}</figcaption></figure>')
+            figs.append(f'<figure><img src="{data_uri}" alt="{esc(a.caption)}"><figcaption>{esc(a.caption)}</figcaption></figure>')  # noqa: E501
         else:
             label = esc(a.caption or a.filename)
             others.append(f'<li><a href="artifacts/{esc(a.filename)}">{label}</a> <span class="meta">({esc(a.mime)}, '

@@ -21,7 +21,7 @@ Body with claims [1] and [2].
 
 
 def test_sources_parsed_and_deduped():
-    ctx = aiq_api_shim.report_context_from_markdown(REPORT + "\n[1] https://aws.amazon.com/s3/features/vectors/", "job_" + "a" * 32)
+    ctx = aiq_api_shim.report_context_from_markdown(REPORT + "\n[1] https://aws.amazon.com/s3/features/vectors/", "job_" + "a" * 32)  # noqa: E501
     urls = [s.url for s in ctx.sources]
     assert urls == ["https://aws.amazon.com/s3/features/vectors/", None, "https://docs.aws.amazon.com/x"]
     assert ctx.sources[1].citation_key == "Internal memo, p.3"
@@ -62,4 +62,4 @@ def test_resolve_is_tenant_scoped(store, principal, other_principal):
     assert ctx.parent_job_id == rec.job_id and ctx.sources[0].url.startswith("https://aws.amazon.com")
     with pytest.raises(aiq_api_shim.ReportNotAvailable):
         asyncio.run(resolve_as(other_principal))
-    assert aiq_api_shim.get_latest_report_job_for_conversation("chat-1", type("P", (), {"sub": principal.tenant_key})()) == rec.job_id
+    assert aiq_api_shim.get_latest_report_job_for_conversation("chat-1", type("P", (), {"sub": principal.tenant_key})()) == rec.job_id  # noqa: E501

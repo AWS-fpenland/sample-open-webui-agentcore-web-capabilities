@@ -132,7 +132,7 @@ def test_terminal_error_marks_job_failed(principal, monkeypatch):
 
         async def run(self, req, cancelled):
             yield EngineEvent(EventType.STATUS, {"description": "about to fail"})
-            yield EngineEvent(EventType.ERROR, {"error": {"code": "internal", "message": "boom", "retryable": True}, "terminal": True})
+            yield EngineEvent(EventType.ERROR, {"error": {"code": "internal", "message": "boom", "retryable": True}, "terminal": True})  # noqa: E501
 
     monkeypatch.setattr(appmod, "_engine", FailingEngine())
     events = asyncio.run(collect({"op": "chat", "mode": "shallow", "messages": [{"role": "user", "content": "x"}]}, principal))

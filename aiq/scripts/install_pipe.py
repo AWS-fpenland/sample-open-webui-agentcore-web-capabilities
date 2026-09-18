@@ -43,7 +43,7 @@ def main() -> int:
     ap.add_argument("--group-name", required=True, help="Open WebUI group that may read the models (from Cognito group sync)")
     ap.add_argument("--disable", action="store_true", help="deactivate the function instead of installing")
     ap.add_argument("--workbench-url", default="", help="Research Workbench base URL (deep links on package cards)")
-    ap.add_argument("--actions", default="", help="path to aiq_actions.py; installs/updates the action function and binds it to the 4 models")
+    ap.add_argument("--actions", default="", help="path to aiq_actions.py; installs/updates the action function and binds it to the 4 models")  # noqa: E501
     a = ap.parse_args()
     token = os.environ.get("OWUI_TOKEN")
     if not token:
@@ -70,7 +70,7 @@ def main() -> int:
     content = open(a.pipe, encoding="utf-8").read()
     version = re.search(r"^version:\s*(\S+)", content, re.M)
     body = {"id": a.function_id, "name": "AI-Q Research on AgentCore", "content": content,
-            "meta": {"description": f"NVIDIA AI-Q research agents on Amazon Bedrock AgentCore (run {a.run_id}, pipe {version.group(1) if version else '?'})",
+            "meta": {"description": f"NVIDIA AI-Q research agents on Amazon Bedrock AgentCore (run {a.run_id}, pipe {version.group(1) if version else '?'})",  # noqa: E501
                      "manifest": {}}}
     if existing.status_code == 200:
         r = c.post(f"/api/v1/functions/id/{a.function_id}/update", json=body)
@@ -107,11 +107,11 @@ def main() -> int:
         acontent = open(a.actions, encoding="utf-8").read()
         aid = "aiq_actions"
         abody = {"id": aid, "name": "AI-Q package actions", "content": acontent,
-                 "meta": {"description": f"Export / Re-run / Compare / Open for AI-Q research packages (run {a.run_id})", "manifest": {}}}
+                 "meta": {"description": f"Export / Re-run / Compare / Open for AI-Q research packages (run {a.run_id})", "manifest": {}}}  # noqa: E501
         ex = c.get(f"/api/v1/functions/id/{aid}")
         r = c.post(f"/api/v1/functions/id/{aid}/update" if ex.status_code == 200 else "/api/v1/functions/create", json=abody)
         print("action function:", r.status_code, (r.text[:200] if r.status_code >= 300 else "ok"))
-        r = c.post(f"/api/v1/functions/id/{aid}/valves/update", json={"RUNTIME_ARN": a.runtime_arn, "REGION": a.region, "WORKBENCH_URL": a.workbench_url})
+        r = c.post(f"/api/v1/functions/id/{aid}/valves/update", json={"RUNTIME_ARN": a.runtime_arn, "REGION": a.region, "WORKBENCH_URL": a.workbench_url})  # noqa: E501
         print("action valves:", r.status_code)
         fn = c.get(f"/api/v1/functions/id/{aid}").json()
         if not fn.get("is_active"):
@@ -123,9 +123,9 @@ def main() -> int:
                 model = row.json()
                 meta = dict(model.get("meta") or {})
                 meta["actionIds"] = sorted(set((meta.get("actionIds") or []) + [f"{aid}.{s['id']}" for s in
-                                                                                  [{"id": "export"}, {"id": "rerun"}, {"id": "compare"}, {"id": "open"}]]))
-                form = {"id": mid, "base_model_id": model.get("base_model_id"), "name": model.get("name") or MODEL_NAMES[mode], "meta": meta,
-                        "params": model.get("params") or {}, "access_grants": model.get("access_grants") or grants, "is_active": True}
+                                                                                  [{"id": "export"}, {"id": "rerun"}, {"id": "compare"}, {"id": "open"}]]))  # noqa: E501
+                form = {"id": mid, "base_model_id": model.get("base_model_id"), "name": model.get("name") or MODEL_NAMES[mode], "meta": meta,  # noqa: E501
+                        "params": model.get("params") or {}, "access_grants": model.get("access_grants") or grants, "is_active": True}  # noqa: E501
                 r = c.post("/api/v1/models/model/update", params={"id": mid}, json=form)
             else:
                 form = {"id": mid, "base_model_id": None, "name": MODEL_NAMES[mode],

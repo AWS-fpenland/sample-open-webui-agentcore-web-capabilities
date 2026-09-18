@@ -106,6 +106,12 @@ def main() -> int:
             context = browser.contexts[0] if browser.contexts else browser.new_context()
             page = context.pages[0] if context.pages else context.new_page()
             page.set_viewport_size({"width": 1440, "height": 900})
+            console: list[dict] = []  # browser console errors + uncaught exceptions + failed requests → evidence
+            page.on("console", lambda m: console.append({"type": m.type, "text": m.text[:300]}) if m.type in ("error", "warning") else None)
+            page.on("pageerror", lambda e: console.append({"type": "pageerror", "text": str(e)[:400]}))
+            page.on("requestfailed", lambda r: console.append({"type": "requestfailed", "text": f"{r.method} {r.url[:160]} {r.failure}"}))
+            page.on("response", lambda r: console.append({"type": "http_error", "text": f"{r.status} {r.url[:160]}"}) if r.status >= 400 else None)
+            out["console"] = console
             if a.owui_url:  # one identity: sign in to Open WebUI first, the Workbench then reuses the Cognito session
                 page.goto(a.owui_url, wait_until="domcontentloaded", timeout=60_000)
                 cognito_login(page, a.username, password, a.out_dir, "00-owui")
@@ -134,13 +140,13 @@ def main() -> int:
                         page.set_viewport_size({"width": w, "height": h})
                         page.goto(a.url.rstrip("/") + route, wait_until="domcontentloaded", timeout=60_000)
                         page.wait_for_timeout(a.settle if bp == "desktop" else 2500)
-                        page.evaluate("t => { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('aiq.theme', t); }", theme)
+                        page.evaluate("t => { document.documentElement.setAttribute('data-theme', t); localStorage.setItem('aiq.theme', t); }", theme)  # noqa: E501
                         page.wait_for_timeout(400)
                         name = route.strip("/").replace("/", "_") or "library"
                         path = os.path.join(a.out_dir, f"{name}-{theme}-{bp}.png")
                         page.screenshot(path=path, full_page=(bp != "desktop"))
                         summ = summarize(page) if bp == "desktop" else {"url": page.url}
-                        out["pages"].append({"route": route, "theme": theme, "breakpoint": bp, "shot": os.path.basename(path), **summ})
+                        out["pages"].append({"route": route, "theme": theme, "breakpoint": bp, "shot": os.path.basename(path), **summ})  # noqa: E501
                         print(f"# {route} {theme} {bp} rows={summ.get('rows')} h1={summ.get('h1')}", file=sys.stderr)
             page.set_viewport_size({"width": 1440, "height": 900})
             for i, label in enumerate(a.click):
@@ -152,7 +158,7 @@ def main() -> int:
                     btn.first.click()
                     page.wait_for_timeout(3500)
                 page.screenshot(path=os.path.join(a.out_dir, f"click-{i}-{re.sub(r'[^a-z0-9]+', '-', label.lower())}.png"))
-                out["clicks"].append({"label": label, "found": ok, "url": page.url, **({"summary": summarize(page)} if ok else {})})
+                out["clicks"].append({"label": label, "found": ok, "url": page.url, **({"summary": summarize(page)} if ok else {})})  # noqa: E501
             browser.close()
     finally:
         try:
@@ -164,7 +170,7 @@ def main() -> int:
         with open(a.result_out, "w") as f:
             json.dump(out, f, indent=2)
     print(json.dumps({k: v for k, v in out.items() if k != "pages"}, indent=2)[:3000])
-    print(json.dumps([{k: p.get(k) for k in ("route", "theme", "breakpoint", "rows", "h1", "errors")} for p in out["pages"]], indent=1)[:4000])
+    print(json.dumps([{k: p.get(k) for k in ("route", "theme", "breakpoint", "rows", "h1", "errors")} for p in out["pages"]], indent=1)[:4000])  # noqa: E501
     return 0
 
 

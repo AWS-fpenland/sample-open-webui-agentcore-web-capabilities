@@ -63,7 +63,7 @@ def reap(now: float | None = None) -> dict:
                     UpdateExpression="SET #s = :f, #e = :msg, updated_at = :ts, last_seq = if_not_exists(last_seq, :zero) + :one",
                     ConditionExpression="#s IN (:q, :r, :c)",
                     ExpressionAttributeNames={"#s": "status", "#e": "error"},
-                    ExpressionAttributeValues={":f": "failed", ":msg": f"stale: no heartbeat for {int(now - last)}s (runtime session lost)",
+                    ExpressionAttributeValues={":f": "failed", ":msg": f"stale: no heartbeat for {int(now - last)}s (runtime session lost)",  # noqa: E501
                                                ":ts": now_iso(), ":zero": 0, ":one": 1, ":q": "queued", ":r": "running",
                                                ":c": "cancelling"},
                     ReturnValues="UPDATED_NEW",

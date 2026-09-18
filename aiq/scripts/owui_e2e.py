@@ -234,7 +234,7 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         page.reload(wait_until="domcontentloaded")
         page.wait_for_timeout(6000)
         shot(page, out_dir, "29-after-final-reload.png")
-        result["after_reload"] = page.evaluate("""() => ({
+        result["after_reload"] = page.evaluate(r"""() => ({
             url: location.href,
             chips: [...document.querySelectorAll('a, button, div')].map(e => (e.innerText || '').trim())
                 .filter(t => /\.(pdf|md|docx|pptx|html|json|csv|zip|bib|ris)$/i.test(t.split('\n')[0]) && t.length < 120).slice(0, 8),

@@ -130,6 +130,13 @@ export class AiqWorkbench extends Construct {
       refreshTokenValidity: cdk.Duration.days(30),
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
     });
+    // The pool uses Cognito Managed Login (branding v2): every app client needs a branding style or the hosted sign-in
+    // page answers "Login pages unavailable". Cognito-provided defaults are enough (verified live 2026-09-18).
+    new cognito.CfnManagedLoginBranding(this, 'Branding', {
+      userPoolId: props.userPool.userPoolId,
+      clientId: this.client.userPoolClientId,
+      useCognitoProvidedValues: true,
+    });
     const config = {
       region: props.region,
       userPoolId: props.userPool.userPoolId,

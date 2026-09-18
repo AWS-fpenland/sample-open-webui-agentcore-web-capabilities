@@ -1,0 +1,52 @@
+{
+  "_comment": "Model-card price OVERLAY for models the AWS Price List Bulk API does not carry yet. build_price_map.py merges these into prices.json ONLY where the Price List has no rate for the same (model, tier, direction); the Price List always wins when present. Every entry cites the model card it was read from and the date. USD per 1M tokens, Standard service tier. Tier keys match the Price List grammar the resolver already understands: standard = In-Region (also what bedrock-mantle bills), cross-region-geo = Geo CRIS (us.* profiles), global-standard = Global CRIS (global.* profiles). `long_context` is the second price band the GPT-6 / GPT-5.6 cards publish: it applies to a REQUEST whose input exceeds `long_context_from_input_tokens`.",
+  "retrieved": "2026-09-09",
+  "models": {
+    "openai.gpt-6-astra": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-astra.html",
+      "long_context_from_input_tokens": 272001,
+      "tiers": {
+        "standard":          {"input": 11.00, "cache_write": 13.75, "cache_read": 1.10, "output": 55.00, "long_context": {"input": 22.00, "cache_write": 27.50, "cache_read": 2.20, "output": 82.50}},
+        "cross-region-geo":  {"input": 11.00, "cache_write": 13.75, "cache_read": 1.10, "output": 55.00, "long_context": {"input": 22.00, "cache_write": 27.50, "cache_read": 2.20, "output": 82.50}},
+        "global-standard":   {"input": 10.00, "cache_write": 12.50, "cache_read": 1.00, "output": 50.00, "long_context": {"input": 20.00, "cache_write": 25.00, "cache_read": 2.00, "output": 75.00}}
+      }
+    },
+    "openai.gpt-5.6-sol": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-sol.html",
+      "long_context_from_input_tokens": 272001,
+      "tiers": {
+        "standard":          {"input": 4.40, "cache_write": 5.50, "cache_read": 0.44, "output": 22.00, "long_context": {"input": 8.80, "cache_write": 11.00, "cache_read": 0.88, "output": 33.00}},
+        "cross-region-geo":  {"input": 4.40, "cache_write": 5.50, "cache_read": 0.44, "output": 22.00, "long_context": {"input": 8.80, "cache_write": 11.00, "cache_read": 0.88, "output": 33.00}},
+        "global-standard":   {"input": 4.00, "cache_write": 5.00, "cache_read": 0.40, "output": 20.00, "long_context": {"input": 8.00, "cache_write": 10.00, "cache_read": 0.80, "output": 30.00}}
+      }
+    },
+    "openai.gpt-5.6-terra": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html",
+      "long_context_from_input_tokens": 272001,
+      "tiers": {
+        "standard":          {"input": 2.20, "cache_write": 2.75, "cache_read": 0.22, "output": 13.20, "long_context": {"input": 4.40, "cache_write": 5.50, "cache_read": 0.44, "output": 19.80}},
+        "cross-region-geo":  {"input": 2.20, "cache_write": 2.75, "cache_read": 0.22, "output": 13.20, "long_context": {"input": 4.40, "cache_write": 5.50, "cache_read": 0.44, "output": 19.80}},
+        "global-standard":   {"input": 2.00, "cache_write": 2.50, "cache_read": 0.20, "output": 12.00, "long_context": {"input": 4.00, "cache_write": 5.00, "cache_read": 0.40, "output": 18.00}}
+      }
+    },
+    "openai.gpt-5.6-luna": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+      "long_context_from_input_tokens": 272001,
+      "tiers": {
+        "standard":          {"input": 0.22, "cache_write": 0.275, "cache_read": 0.022, "output": 1.32, "long_context": {"input": 0.44, "cache_write": 0.55, "cache_read": 0.044, "output": 1.98}},
+        "cross-region-geo":  {"input": 0.22, "cache_write": 0.275, "cache_read": 0.022, "output": 1.32, "long_context": {"input": 0.44, "cache_write": 0.55, "cache_read": 0.044, "output": 1.98}},
+        "global-standard":   {"input": 0.20, "cache_write": 0.25, "cache_read": 0.02, "output": 1.20, "long_context": {"input": 0.40, "cache_write": 0.50, "cache_read": 0.04, "output": 1.80}}
+      }
+    },
+    "openai.gpt-5.5": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-55.html",
+      "note": "bedrock-mantle only (In-Region); single 272K context band; the card publishes no cache-write price (implicit caching, writes free).",
+      "tiers": {"standard": {"input": 5.50, "cache_write": 0.0, "cache_read": 0.55, "output": 33.00}}
+    },
+    "openai.gpt-5.4": {
+      "card": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-54.html",
+      "note": "bedrock-mantle only (In-Region); no cache-write price published.",
+      "tiers": {"standard": {"input": 2.75, "cache_write": 0.0, "cache_read": 0.275, "output": 16.50}}
+    }
+  }
+}

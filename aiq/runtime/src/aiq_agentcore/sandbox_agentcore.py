@@ -61,15 +61,25 @@ def take_artifacts(job_id: str) -> list[HarvestedArtifact]:
 
 def _kind(name: str) -> str:
     ext = os.path.splitext(name)[1].lower()
-    return {"png": "image", "jpg": "image", "jpeg": "image", "webp": "image", "csv": "dataset", "json": "dataset",
-            "md": "document", "txt": "text", "pdf": "document"}.get(ext.lstrip("."), "other")
+    return {
+        "png": "image",
+        "jpg": "image",
+        "jpeg": "image",
+        "webp": "image",
+        "csv": "dataset",
+        "json": "dataset",
+        "md": "document",
+        "txt": "text",
+        "pdf": "document",
+    }.get(ext.lstrip("."), "other")
 
 
 def _settings() -> dict[str, Any]:
     return {
         "identifier": os.environ.get("AIQ_AGENTCORE_CI_IDENTIFIER", "aws.codeinterpreter.v1"),
-        "region": (os.environ.get("AIQ_AGENTCORE_CI_REGION") or os.environ.get("AIQ_REGION")
-                   or os.environ.get("AWS_REGION", "us-east-1")),
+        "region": (
+            os.environ.get("AIQ_AGENTCORE_CI_REGION") or os.environ.get("AIQ_REGION") or os.environ.get("AWS_REGION", "us-east-1")
+        ),
         "network_mode": os.environ.get("AIQ_AGENTCORE_CI_NETWORK_MODE", "SANDBOX").upper(),
         "session_timeout": int(os.environ.get("AIQ_AGENTCORE_CI_SESSION_TIMEOUT_SECONDS", "3600")),
         "sync_cap": int(os.environ.get("AIQ_AGENTCORE_CI_SYNC_EXECUTE_CAP_SECONDS", "840")),
@@ -116,8 +126,9 @@ class AgentCoreCodeInterpreterSandbox:
         return self._session_id
 
     def _invoke(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        resp = self._client.invoke_code_interpreter(codeInterpreterIdentifier=self._identifier,
-                                                    sessionId=self._session_id, name=name, arguments=arguments)
+        resp = self._client.invoke_code_interpreter(
+            codeInterpreterIdentifier=self._identifier, sessionId=self._session_id, name=name, arguments=arguments
+        )
         return _collect(resp.get("stream"))
 
     def execute(self, command: str, *, timeout: int | None = None):
@@ -139,8 +150,16 @@ class AgentCoreCodeInterpreterSandbox:
         truncated = False
         if len(output) > MAX_OUTPUT_CHARS:
             output, truncated = output[:MAX_OUTPUT_CHARS] + "\n…[output truncated]", True
-        log.debug(json.dumps({"event": "sandbox.execute", "session": self._session_id, "exit": exit_code,
-                              "seconds": round(time.monotonic() - t0, 2)}))
+        log.debug(
+            json.dumps(
+                {
+                    "event": "sandbox.execute",
+                    "session": self._session_id,
+                    "exit": exit_code,
+                    "seconds": round(time.monotonic() - t0, 2),
+                }
+            )
+        )
         return ExecuteResponse(output=output, exit_code=int(exit_code), truncated=truncated)
 
     def upload_files(self, files):
@@ -148,8 +167,10 @@ class AgentCoreCodeInterpreterSandbox:
         from deepagents.backends.protocol import FileUploadResponse
 
         out = []
-        code = ("import base64,os,sys\np=sys.argv[1]\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\n"
-                "open(p,'wb').write(base64.b64decode(sys.stdin.read()))\nprint('ok')")
+        code = (
+            "import base64,os,sys\np=sys.argv[1]\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\n"
+            "open(p,'wb').write(base64.b64decode(sys.stdin.read()))\nprint('ok')"
+        )
         for path, content in files:
             b64 = base64.b64encode(content).decode()
             # stdin via heredoc keeps very large payloads off the argv limit
@@ -168,10 +189,12 @@ class AgentCoreCodeInterpreterSandbox:
         from deepagents.backends.protocol import FileDownloadResponse
 
         out = []
-        code = ("import base64,os,sys\np=sys.argv[1]\n"
-                "if not os.path.exists(p): print('__AIQ_NOT_FOUND__'); sys.exit(0)\n"
-                "if os.path.isdir(p): print('__AIQ_IS_DIR__'); sys.exit(0)\n"
-                "sys.stdout.write(base64.b64encode(open(p,'rb').read()).decode())")
+        code = (
+            "import base64,os,sys\np=sys.argv[1]\n"
+            "if not os.path.exists(p): print('__AIQ_NOT_FOUND__'); sys.exit(0)\n"
+            "if os.path.isdir(p): print('__AIQ_IS_DIR__'); sys.exit(0)\n"
+            "sys.stdout.write(base64.b64encode(open(p,'rb').read()).decode())"
+        )
         for path in paths:
             try:
                 res = self._invoke("executeCommand", {"command": f"python3 -c {shlex.quote(code)} {shlex.quote(path)}"})
@@ -215,19 +238,51 @@ def build_provider_class():
             self._settings = _settings()  # no AWS call here (compliance: constructor is side-effect free)
             self._client = None
             self._session_ref = None
-            log.info(json.dumps({"event": "sandbox.provider.constructed", "job_id": job_id, "workdir": str(self.workdir),
-                                 "artifact_dir": str(self.artifact_dir), "identifier": self._settings["identifier"]}))
+            log.info(
+                json.dumps(
+                    {
+                        "event": "sandbox.provider.constructed",
+                        "job_id": job_id,
+                        "workdir": str(self.workdir),
+                        "artifact_dir": str(self.artifact_dir),
+                        "identifier": self._settings["identifier"],
+                    }
+                )
+            )
 
         def execute(self, command: str, *, timeout: int | None = None):
-            log.info(json.dumps({"event": "sandbox.execute", "job_id": self.job_id, "chars": len(command or ""),
-                                 "timeout": timeout, "preview": (command or "")[:120]}))
+            log.info(
+                json.dumps(
+                    {
+                        "event": "sandbox.execute",
+                        "job_id": self.job_id,
+                        "chars": len(command or ""),
+                        "timeout": timeout,
+                        "preview": (command or "")[:120],
+                    }
+                )
+            )
             try:
                 result = super().execute(command, timeout=timeout)
             except Exception as e:  # noqa: BLE001 — log then re-raise (deepagents turns it into a tool error)
                 log.error(json.dumps({"event": "sandbox.execute.failed", "job_id": self.job_id, "error": repr(e)[:300]}))
                 raise
-            log.info(json.dumps({"event": "sandbox.execute.done", "job_id": self.job_id, "exit": result.exit_code,
-                                 "out_chars": len(result.output or "")}))
+            log.info(
+                json.dumps(
+                    {
+                        "event": "sandbox.execute.done",
+                        "job_id": self.job_id,
+                        "exit": result.exit_code,
+                        "out_chars": len(result.output or ""),
+                    }
+                )
+            )
+            if result.exit_code == 0 and self._session_ref is not None:
+                # ADR-27: artifacts are published as they appear, not only at session close (F4 in 09-first-principles).
+                try:
+                    self._checkpoint(self._session_ref)
+                except Exception as e:  # noqa: BLE001 — never let publishing break the research run
+                    log.warning(json.dumps({"event": "sandbox.checkpoint.failed", "job_id": self.job_id, "error": repr(e)[:200]}))
             return result
 
         @property
@@ -252,27 +307,49 @@ def build_provider_class():
             from botocore.config import Config
 
             s = self._settings
-            self._client = boto3.client("bedrock-agentcore", region_name=s["region"],
-                                        config=Config(read_timeout=s["sync_cap"] + 60, connect_timeout=10,
-                                                      retries={"mode": "standard", "max_attempts": 2}))
+            self._client = boto3.client(
+                "bedrock-agentcore",
+                region_name=s["region"],
+                config=Config(
+                    read_timeout=s["sync_cap"] + 60, connect_timeout=10, retries={"mode": "standard", "max_attempts": 2}
+                ),
+            )
             token = str(uuid.uuid5(uuid.NAMESPACE_URL, f"aiq-sandbox:{self.job_id}"))
             resp = self._client.start_code_interpreter_session(
-                codeInterpreterIdentifier=s["identifier"], name=self.sandbox_name[:100],
-                sessionTimeoutSeconds=max(60, min(int(s["session_timeout"]), 28800)), clientToken=token)
-            session = AgentCoreCodeInterpreterSandbox(client=self._client, identifier=s["identifier"],
-                                                      session_id=resp["sessionId"], sync_cap=s["sync_cap"])
+                codeInterpreterIdentifier=s["identifier"],
+                name=self.sandbox_name[:100],
+                sessionTimeoutSeconds=max(60, min(int(s["session_timeout"]), 28800)),
+                clientToken=token,
+            )
+            session = AgentCoreCodeInterpreterSandbox(
+                client=self._client, identifier=s["identifier"], session_id=resp["sessionId"], sync_cap=s["sync_cap"]
+            )
             self._session_ref = session
-            log.info(json.dumps({"event": "sandbox.session.started", "job_id": self.job_id, "session": resp["sessionId"],
-                                 "identifier": s["identifier"]}))
-            self._emit_event({"type": "sandbox.session", "data": {"status": "started", "session_id": resp["sessionId"],
-                                                                  "provider": self.provider_name}})
+            log.info(
+                json.dumps(
+                    {
+                        "event": "sandbox.session.started",
+                        "job_id": self.job_id,
+                        "session": resp["sessionId"],
+                        "identifier": s["identifier"],
+                    }
+                )
+            )
+            self._emit_event(
+                {
+                    "type": "sandbox.session",
+                    "data": {"status": "started", "session_id": resp["sessionId"], "provider": self.provider_name},
+                }
+            )
             try:
                 from .run_context import get_run_context
 
                 ctx = get_run_context()
                 if ctx:
-                    ctx.note("status", {"description": "Sandbox session started (AgentCore Code Interpreter)", "done": False,
-                                        "tool": "sandbox"})
+                    ctx.note(
+                        "status",
+                        {"description": "Sandbox session started (AgentCore Code Interpreter)", "done": False, "tool": "sandbox"},
+                    )
             except Exception:  # noqa: BLE001
                 pass
             return session
@@ -282,30 +359,94 @@ def build_provider_class():
             pkgs = self._settings["bootstrap_packages"]
             if pkgs and self._settings["network_mode"] != "SANDBOX":
                 try:
-                    session.execute(f"python3 -m pip install -q {' '.join(shlex.quote(p) for p in pkgs)} 2>&1 | tail -1",
-                                    timeout=120)
+                    session.execute(
+                        f"python3 -m pip install -q {' '.join(shlex.quote(p) for p in pkgs)} 2>&1 | tail -1", timeout=120
+                    )
                 except Exception as e:  # noqa: BLE001
                     log.warning("sandbox bootstrap packages failed: %s", e.__class__.__name__)
 
-        def _harvest(self, session) -> None:
+        def _scan(self, session) -> list[HarvestedArtifact]:
+            """Download artifact files not seen before (by path + size); bounded like upstream's harvest."""
             try:
-                cmd = f"find {shlex.quote(self.artifact_dir)} -type f 2>/dev/null | head -{ARTIFACT_MAX_FILES}"
+                cmd = f"find {shlex.quote(str(self.artifact_dir))} -type f -printf '%s %p\\n' 2>/dev/null | head -{ARTIFACT_MAX_FILES}"  # noqa: E501
                 listing = session.execute(cmd, timeout=30)
             except Exception as e:  # noqa: BLE001
                 log.debug("artifact listing failed: %s", e.__class__.__name__)
-                return
-            paths = [p for p in (listing.output or "").splitlines() if p.strip() and p.lower().endswith(ARTIFACT_EXTENSIONS)]
+                return []
+            seen = getattr(self, "_seen_files", None)
+            if seen is None:
+                seen = self._seen_files = {}
+            paths = []
+            for line in (listing.output or "").splitlines():
+                parts = line.strip().split(" ", 1)
+                if len(parts) != 2 or not parts[1].lower().endswith(ARTIFACT_EXTENSIONS):
+                    continue
+                size, path = parts
+                if seen.get(path) == size:
+                    continue
+                seen[path] = size
+                paths.append(path)
             if not paths:
-                return
+                return []
             found: list[HarvestedArtifact] = []
             for res in session.download_files(paths[:ARTIFACT_MAX_FILES]):
                 if res.content and len(res.content) <= ARTIFACT_MAX_BYTES:
                     name = os.path.basename(res.path)
                     found.append(HarvestedArtifact(name=name, path=res.path, content=res.content, kind=_kind(name)))
-            if found:
+            return found
+
+        def _publish(self, found: list[HarvestedArtifact], phase: str) -> None:
+            """Publish through the run context when the engine offers a publisher (S3 + `artifact` event now);
+            otherwise queue for the engine's terminal publish."""
+            if not found:
+                return
+            publisher = None
+            try:
+                from .run_context import get_run_context
+
+                ctx = get_run_context()
+                publisher = ctx.publish_artifact if ctx else None
+            except Exception:  # noqa: BLE001
+                publisher = None
+            leftovers: list[HarvestedArtifact] = []
+            for art in found:
+                rec = None
+                if publisher is not None:
+                    try:
+                        rec = publisher(art.name, art.content, art.kind)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning(
+                            json.dumps(
+                                {
+                                    "event": "artifact.publish.failed",
+                                    "job_id": self.job_id,
+                                    "name": art.name,
+                                    "error": repr(e)[:200],
+                                }
+                            )
+                        )
+                if rec is None:
+                    leftovers.append(art)
+            if leftovers:
                 with _HARVEST_LOCK:
-                    _HARVEST.setdefault(self.job_id, []).extend(found)
-                log.info(json.dumps({"event": "sandbox.artifacts.harvested", "job_id": self.job_id, "count": len(found)}))
+                    _HARVEST.setdefault(self.job_id, []).extend(leftovers)
+            log.info(
+                json.dumps(
+                    {
+                        "event": "sandbox.artifacts.harvested",
+                        "job_id": self.job_id,
+                        "count": len(found),
+                        "phase": phase,
+                        "published": len(found) - len(leftovers),
+                    }
+                )
+            )
+
+        def _checkpoint(self, session) -> None:
+            self._publish(self._scan(session), "checkpoint")
+
+        def _harvest(self, session) -> None:
+            self._publish(self._scan(session), "final")
 
         def close(self) -> None:
             session = self._session_ref

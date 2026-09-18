@@ -30,6 +30,11 @@ class RunContext:
     emit: Emit | None = None  # engine-provided sink for adapter-level events (source, tool.call, ...)
     cancelled: asyncio.Event | None = None
     page_cache: dict[str, str] = field(default_factory=dict)  # normalized URL -> rendered page (per job)
+    # phase 3: per-request model selection (ADR-23) and mid-run artifact publishing (ADR-27)
+    model_overrides: dict[str, dict[str, Any]] | None = None  # {our_role: {model_id, lane, human_name}}
+    model_clients: dict[tuple, Any] = field(default_factory=dict)
+    publish_artifact: Callable[[str, bytes, str], dict[str, Any] | None] | None = None  # (name, bytes, kind) -> record
+    published_artifacts: dict[str, dict[str, Any]] = field(default_factory=dict)  # sha256 -> record
 
     def record_source(self, src: Source) -> bool:
         new = src.source_id not in self.sources

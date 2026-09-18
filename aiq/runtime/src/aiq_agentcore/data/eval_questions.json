@@ -1,0 +1,9 @@
+[
+  {"id": "s1-s3vectors-regions", "mode": "shallow", "question": "What is Amazon S3 Vectors and in how many AWS Regions was it generally available as of 2026? Cite sources.", "expects": ["S3 Vectors", "Region"]},
+  {"id": "s2-agentcore-lifetime", "mode": "shallow", "question": "What is the maximum session lifetime of an Amazon Bedrock AgentCore Runtime microVM session, and what is the default idle timeout? Cite sources.", "expects": ["8 hours", "15 minutes"]},
+  {"id": "s3-nemotron-bedrock", "mode": "shallow", "question": "Which NVIDIA Nemotron models are available on Amazon Bedrock and what are they designed for? Cite sources.", "expects": ["Nemotron", "Bedrock"]},
+  {"id": "s4-kb-s3vectors", "mode": "shallow", "question": "What metadata limits apply when Amazon Bedrock Knowledge Bases use Amazon S3 Vectors as the vector store? Cite sources.", "expects": ["metadata", "KB"]},
+  {"id": "s5-fresh-news", "mode": "shallow", "question": "What did AWS announce about Amazon Bedrock AgentCore in September 2026? Cite sources with dates.", "expects": ["AgentCore"]},
+  {"id": "d1-vector-stores", "mode": "deep", "question": "Compare Amazon S3 Vectors and Amazon OpenSearch Serverless as vector stores for Bedrock Knowledge Bases: cost model, latency characteristics, scale limits, and when to choose each. Structured report with cited sources.", "expects": ["S3 Vectors", "OpenSearch", "cost", "latency"]},
+  {"id": "d2-agentcore-vs-lambda", "mode": "deep", "question": "For hosting long-running AI agents on AWS, compare Amazon Bedrock AgentCore Runtime with AWS Lambda and Amazon ECS Fargate: session model, maximum duration, pricing model, identity/authorization, and observability. Cite sources.", "expects": ["AgentCore", "Lambda", "Fargate"]}
+]

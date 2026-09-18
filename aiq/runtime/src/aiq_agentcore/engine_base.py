@@ -42,6 +42,8 @@ class EngineRequest:
     data_sources: list[str] | None = None
     active_report_job_id: str | None = None
     clarification: list[tuple[str, str]] | None = None
+    models: dict[str, Any] | None = None  # resolved per-role models {role: {model_id, lane, human_name, source}} (ADR-23)
+    publish_artifact: Any = None  # callable(name, bytes, kind) -> record | None (ADR-27)
 
     @property
     def question(self) -> str:

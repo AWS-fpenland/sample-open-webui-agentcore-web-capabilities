@@ -312,3 +312,15 @@ def test_export_md_and_json_when_renderers_present(principal):
     assert r2[0]["data"]["cached"] is True and r2[0]["data"]["sha256"] == r[0]["data"]["sha256"]
     r = asyncio.run(collect({"op": "export", "job_id": job, "format": "nope"}, principal))
     assert r[0]["type"] == "error"
+
+
+def test_artifact_url_is_tenant_scoped(principal, other_principal):
+    a = _run_shallow(principal, "question with no artifacts", "art-1")[0]["job_id"]
+    # another tenant never learns whether the job exists
+    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_x"}, other_principal))
+    assert r[0]["type"] == "error" and r[0]["data"]["error"]["code"] == "not_found"
+    # the owner with a forged artifact id gets not_found too (no presigned URL is ever minted for unknown keys)
+    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_doesnotexist"}, principal))
+    assert r[0]["type"] == "error" and r[0]["data"]["error"]["code"] == "not_found"
+    r = asyncio.run(collect({"op": "artifact.url", "job_id": a}, principal))
+    assert r[0]["data"]["error"]["code"] == "invalid_request"

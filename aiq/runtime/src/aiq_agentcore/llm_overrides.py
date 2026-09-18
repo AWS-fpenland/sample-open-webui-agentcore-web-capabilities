@@ -59,6 +59,61 @@ def _settings_from(base: Any) -> dict[str, Any]:
     return out
 
 
+class _ModelErrorJournal:
+    """LangChain callback: journals every provider error of an overridden client as a `warning` event (and a WARNING log),
+    so users and operators see *why* a selected model failed instead of upstream's generic 'Research could not be completed'."""
+
+    raise_error = False
+    ignore_llm = False
+    ignore_chain = True
+    ignore_agent = True
+    ignore_retriever = True
+    ignore_chat_model = False
+    ignore_retry = True
+    ignore_custom_event = True
+    run_inline = True
+
+    def __init__(self, role: str, model_id: str, lane: str) -> None:
+        self.role, self.model_id, self.lane = role, model_id, lane
+
+    def _record(self, error: BaseException) -> None:
+        detail = str(error)[:600]
+        payload = {
+            "event": "model.error",
+            "role": self.role,
+            "model_id": self.model_id,
+            "lane": self.lane,
+            "error_type": type(error).__name__,
+            "message": detail,
+        }
+        log.warning(json.dumps(payload))
+        ctx = get_run_context()
+        if ctx is not None:
+            try:
+                ctx.note("warning", {"kind": "model_error", **{k: v for k, v in payload.items() if k != "event"}})
+            except Exception:  # noqa: BLE001
+                pass
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        self._record(error)
+
+    async def aon_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        self._record(error)
+
+    def __getattr__(self, name: str) -> Any:  # every other callback is a no-op
+        if name.startswith(("on_", "aon_")):
+            return _noop if name.startswith("on_") else _anoop
+        raise AttributeError(name)
+
+
+def _noop(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
+async def _anoop(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
 def build_client(model_id: str, lane: str, base: Any, region: str) -> Any:
     settings = _settings_from(base)
     if lane == "converse":
@@ -137,12 +192,21 @@ def apply() -> bool:
         key = (ours, mid, lane)
         if key not in cache:
             region = os.environ.get("AIQ_REGION") or os.environ.get("AWS_REGION", "us-east-1")
-            cache[key] = build_client(mid, lane, base, region)
+            client = build_client(mid, lane, base, region)
+            try:  # journal provider errors of the selected model (see _ModelErrorJournal)
+                client.callbacks = [*(getattr(client, "callbacks", None) or []), _ModelErrorJournal(ours, mid, lane)]
+            except Exception:  # noqa: BLE001
+                pass
+            cache[key] = client
             ctx.note(
                 "status",
                 {"description": f"Model for {ours}: {choice.get('human_name') or mid} ({lane})", "done": True, "tool": "models"},
             )
-            log.info(json.dumps({"event": "model.override", "job_id": ctx.job_id, "role": ours, "model_id": mid, "lane": lane}))
+            # WARNING on purpose: upstream AI-Q's relay logger reconfigures logging inside the workflow and INFO from
+            # foreign loggers never reaches CloudWatch (verified 2026-09-18: the journal `status` event appeared, this line did not).
+            log.warning(
+                json.dumps({"event": "model.override", "job_id": ctx.job_id, "role": ours, "model_id": mid, "lane": lane})
+            )
         return cache[key]
 
     LLMProvider.get = patched_get  # type: ignore[method-assign]

@@ -23,7 +23,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs:
   return (
     <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKey}>
       {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} aria-selected={t.id === value} aria-controls={`panel-${t.id}`} tabIndex={t.id === value ? 0 : -1} onClick={() => onChange(t.id)}>
+        <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} aria-selected={t.id === value} tabIndex={t.id === value ? 0 : -1} onClick={() => onChange(t.id)}>
           {t.label}
           {t.count !== undefined && t.count !== null ? <span className="count">({t.count})</span> : null}
         </button>

@@ -46,7 +46,7 @@ function Caps({ e }: { e: MatrixEntry }) {
   const capOf = (k: string) => (caps as Record<string, { ok?: boolean; error_code?: string | null; ms?: number | null } | undefined>)[k] ?? { ok: false, error_code: 'not_probed', ms: null };
   const title = (['plain', 'system', 'stream', 'tools', 'json', 'long', 'reasoning'] as const).map((k) => `${k}: ${capOf(k).ok ? 'ok' : capOf(k).error_code ?? 'failed'}${capOf(k).ms ? ` (${capOf(k).ms} ms)` : ''}`).join('\n');
   return (
-    <span className="caps" title={title} aria-label={title.replace(/\n/g, ', ')}>
+    <span className="caps" role="img" title={title} aria-label={title.replace(/\n/g, ', ')}>
       {DOTS.map((d) => {
         const c = capOf(d.key);
         const cls = c.ok ? 'cap-ok' : c.error_code === 'not_probed' || c.error_code === 'unprobed' || (!capOf('plain').ok && d.key !== 'plain') ? 'cap-na' : 'cap-no';

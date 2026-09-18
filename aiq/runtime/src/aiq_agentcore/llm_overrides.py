@@ -203,7 +203,8 @@ def apply() -> bool:
                 {"description": f"Model for {ours}: {choice.get('human_name') or mid} ({lane})", "done": True, "tool": "models"},
             )
             # WARNING on purpose: upstream AI-Q's relay logger reconfigures logging inside the workflow and INFO from
-            # foreign loggers never reaches CloudWatch (verified 2026-09-18: the journal `status` event appeared, this line did not).
+            # foreign loggers never reaches CloudWatch
+            # (verified 2026-09-18: the journal `status` event appeared, this line did not).
             log.warning(
                 json.dumps({"event": "model.override", "job_id": ctx.job_id, "role": ours, "model_id": mid, "lane": lane})
             )

@@ -39,7 +39,7 @@ export function RoleSelector({ models, value, onChange, roles = ROLES, validatio
     <div className="stack" style={{ gap: 10 }}>
       <div className="role-pick">
         {roles.map((role) => {
-          const selectable = models.entries.filter((e) => e.roles_selectable[role]).sort((a, b) => b.roles[role].score - a.roles[role].score || a.name.localeCompare(b.name));
+          const selectable = models.entries.filter((e) => e.roles_selectable[role]).sort((a, b) => (b.roles?.[role]?.score ?? -1) - (a.roles?.[role]?.score ?? -1) || a.name.localeCompare(b.name));
           const excluded = models.entries.filter((e) => !e.roles_selectable[role]).slice(0, 12);
           const cur = value[role];
           const key = cur ? `${cur.lane}::${cur.model_id}` : '';

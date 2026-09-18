@@ -342,8 +342,8 @@ export default function ModelLabPage() {
               <table className="leader" aria-label={`Leaderboard for ${ROLE_LABEL[leaderRole]}`}>
                 <tbody>
                   {data.entries
-                    .filter((e) => e.offered && e.roles[leaderRole] && e.roles[leaderRole].verdict !== 'not_evaluated')
-                    .sort((a, b) => b.roles[leaderRole].score - a.roles[leaderRole].score || (a.latency.plain_ms ?? 1e9) - (b.latency.plain_ms ?? 1e9))
+                    .filter((e) => e.offered && typeof e.roles?.[leaderRole]?.score === 'number' && e.roles[leaderRole].verdict !== 'not_evaluated')
+                    .sort((a, b) => (b.roles?.[leaderRole]?.score ?? -1) - (a.roles?.[leaderRole]?.score ?? -1) || (a.latency?.plain_ms ?? 1e9) - (b.latency?.plain_ms ?? 1e9))
                     .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
                     .slice(0, 8)
                     .map((e, i) => (
@@ -555,7 +555,7 @@ function EvalDialog({ open, onClose, onStarted }: { open: boolean; onClose: () =
       window.clearTimeout(t);
     };
   }, [api, sel]);
-  const judges = data.entries.filter((e) => e.offered && e.roles_selectable?.writer && e.capabilities?.json?.ok).filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i).sort((a, b) => b.roles.writer.score - a.roles.writer.score);
+  const judges = data.entries.filter((e) => e.offered && e.roles_selectable?.writer && e.capabilities?.json?.ok).filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i).sort((a, b) => (b.roles?.writer?.score ?? -1) - (a.roles?.writer?.score ?? -1));
   const start = async () => {
     setBusy(true);
     setError(null);

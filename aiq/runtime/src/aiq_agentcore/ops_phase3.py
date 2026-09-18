@@ -433,10 +433,31 @@ def _trim_entry(e: dict[str, Any]) -> dict[str, Any]:
     # every probe key is always present so clients can index them without guards (unprobed → ok False, error "unprobed")
     raw_caps = e.get("capabilities") or {}
     caps = {
-        p: {"ok": bool((raw_caps.get(p) or {}).get("ok")),
+        p: {
+            "ok": bool((raw_caps.get(p) or {}).get("ok")),
             "error_code": (raw_caps.get(p) or {}).get("error_code") or ("unprobed" if p not in raw_caps else None),
-            "ms": (raw_caps.get(p) or {}).get("ms")}
+            "ms": (raw_caps.get(p) or {}).get("ms"),
+        }
         for p in ("plain", "system", "stream", "tools", "json", "long", "reasoning")
+    }
+    # every role key is present too (unprobed → score None / verdict "not_probed") — same reason as the probe keys
+    raw_roles = e.get("roles") or {}
+    roles = {
+        r: {
+            "score": (raw_roles.get(r) or {}).get("score"),
+            "verdict": (raw_roles.get(r) or {}).get("verdict") or "not_probed",
+            "checks": (raw_roles.get(r) or {}).get("checks"),
+            "error": (raw_roles.get(r) or {}).get("error"),
+        }
+        for r in ("router", "clarifier", "shallow", "planner", "researcher", "writer", "chart")
+    }
+    raw_sel = e.get("roles_selectable") or {}
+    e = {
+        **e,
+        "roles": roles,
+        "roles_selectable": {
+            r: bool(raw_sel.get(r)) for r in ("router", "clarifier", "shallow", "planner", "researcher", "writer")
+        },
     }
     return {
         k: e.get(k)

@@ -114,8 +114,8 @@ export default function LibraryPage() {
   const kpi = useMemo(() => {
     const running = items.filter((p) => p.status === 'running' || p.status === 'queued');
     const spend30 = items.filter((p) => withinDays(p.created_at, 30)).reduce((s, p) => s + (p.cost_usd || 0), 0);
-    const cv = items.reduce((s, p) => s + p.counts.citations_verified, 0);
-    const cu = items.reduce((s, p) => s + p.counts.citations_unverified, 0);
+    const cv = items.reduce((s, p) => s + (p.counts?.citations_verified ?? 0), 0);
+    const cu = items.reduce((s, p) => s + (p.counts?.citations_unverified ?? 0), 0);
     const avgPct = running.length ? running.reduce((s, p) => s + (p.progress?.pct ?? 0), 0) / running.length : 0;
     return { running, spend30, cv, cu, avgPct };
   }, [items]);
@@ -340,7 +340,7 @@ function Row({ p, onPin, onTag, onRerun, owuiUrl }: { p: PackageSummary; onPin: 
         <StatusChip status={p.status} progress={p.progress} />
       </td>
       <td>{MODE_LABEL[p.mode] ?? p.mode}</td>
-      <td className="num">{p.counts.sources}</td>
+      <td className="num">{(p.counts?.sources ?? 0)}</td>
       <td>
         <ModelName id={p.models?.writer?.model_id} name={p.models?.writer?.human_name} showId={false} />
       </td>

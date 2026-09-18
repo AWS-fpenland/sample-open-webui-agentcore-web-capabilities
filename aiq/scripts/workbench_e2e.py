@@ -107,8 +107,8 @@ def main() -> int:
             page = context.pages[0] if context.pages else context.new_page()
             page.set_viewport_size({"width": 1440, "height": 900})
             console: list[dict] = []  # browser console errors + uncaught exceptions + failed requests → evidence
-            page.on("console", lambda m: console.append({"type": m.type, "text": m.text[:300]}) if m.type in ("error", "warning") else None)  # noqa: E501
-            page.on("pageerror", lambda e: console.append({"type": "pageerror", "text": str(e)[:400]}))
+            page.on("console", lambda m: console.append({"type": m.type, "text": m.text[:300], "url": page.url[:120]}) if m.type in ("error", "warning") else None)  # noqa: E501
+            page.on("pageerror", lambda e: console.append({"type": "pageerror", "text": str(e)[:400], "url": page.url[:120]}))
             page.on("requestfailed", lambda r: console.append({"type": "requestfailed", "text": f"{r.method} {r.url[:160]} {r.failure}"}))  # noqa: E501
             page.on("response", lambda r: console.append({"type": "http_error", "text": f"{r.status} {r.url[:160]}"}) if r.status >= 400 else None)  # noqa: E501
             out["console"] = console

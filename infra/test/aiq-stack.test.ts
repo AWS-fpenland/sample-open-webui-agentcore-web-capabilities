@@ -141,3 +141,14 @@ describe('AiqStack', () => {
     expect(() => synth({ allowedClientIds: [] })).toThrow(/client/);
   });
 });
+
+test('phase 3: runtime role reaches packages/ and model-lab/ prefixes and the Mantle lanes', () => {
+  const { template } = synth();
+  const policies = template.findResources('AWS::IAM::Policy');
+  const json = JSON.stringify(policies);
+  expect(json).toContain('packages/*');
+  expect(json).toContain('model-lab/*');
+  expect(json).toContain('bedrock:CallWithBearerToken');
+  expect(json).toContain('bedrock-mantle:InvokeModel');
+});
+

@@ -493,6 +493,12 @@ export class AiqStack extends cdk.Stack {
     this.artifacts.grantReadWrite(runtimeRole, 'tenants/*');
     this.artifacts.grantReadWrite(runtimeRole, 'documents/*');
     this.artifacts.grantDelete(runtimeRole, 'documents/*');
+    // Phase 3: Research Packages (manifest, report, ledger, artifacts, exports — user-deletable) and the read-only
+    // Capability Matrix published by the operator (ADR-21/24).
+    this.artifacts.grantReadWrite(runtimeRole, 'packages/*');
+    this.artifacts.grantDelete(runtimeRole, 'packages/*');
+    this.artifacts.grantDelete(runtimeRole, 'tenants/*');
+    this.artifacts.grantRead(runtimeRole, 'model-lab/*');
     this.artifacts.grantRead(runtimeRole, 'builds/*');
 
     // AgentCore Browser (page loader) and Code Interpreter (sandboxed skills). The AWS-managed

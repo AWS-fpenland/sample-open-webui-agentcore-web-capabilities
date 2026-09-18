@@ -1,0 +1,11 @@
+{
+  "mock": true,
+  "region": "us-east-1",
+  "userPoolId": "us-east-1_PLACEHOLDER",
+  "clientId": "PLACEHOLDER_WORKBENCH_PKCE_CLIENT_ID",
+  "cognitoDomain": "PLACEHOLDER.auth.us-east-1.amazoncognito.com",
+  "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:000000000000:runtime/PLACEHOLDER",
+  "owuiUrl": "https://oui.example.com",
+  "workbenchUrl": "http://localhost:4173",
+  "connectedApps": false
+}

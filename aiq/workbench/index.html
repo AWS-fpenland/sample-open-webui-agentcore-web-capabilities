@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: MIT-0
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="AI-Q Research Workbench: every research job becomes a durable package. Library, compare, exports, Model Lab." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2314b8a6'/%3E%3Cstop offset='.55' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%23f59e0b'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='url(%23g)'/%3E%3Cpath d='M9 22h14M9 16h9M9 10h14' stroke='%230b0f17' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <title>AI-Q Research Workbench</title>
+    <script>
+      // Apply persisted theme/density before first paint (no flash). Mirrors src/lib/theme.ts.
+      try {
+        var t = localStorage.getItem('aiq-wb-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        var d = localStorage.getItem('aiq-wb-density');
+        if (d === 'compact') document.documentElement.setAttribute('data-density', 'compact');
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

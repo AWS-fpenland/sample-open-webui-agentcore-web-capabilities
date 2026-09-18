@@ -58,7 +58,7 @@ class Engine:
 
     async def run(self, req: EngineRequest, cancelled: asyncio.Event) -> AsyncIterator[EngineEvent]:  # pragma: no cover
         raise NotImplementedError
-        yield  # noqa: unreachable — makes this an async generator for type checkers
+        yield  # unreachable — makes this an async generator for type checkers
 
 
 class MockEngine(Engine):

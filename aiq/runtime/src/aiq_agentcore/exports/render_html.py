@@ -53,7 +53,7 @@ sup.cite{line-height:0}sup.cite a{font-weight:600;text-decoration:none;padding:0
 code{font-family:var(--mono);font-size:.9em;background:var(--code-bg);padding:.1rem .3rem;border-radius:4px}
 pre{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.8rem 1rem;overflow:auto}
 pre code{background:none;padding:0}
-figure{margin:1.2rem 0}figure img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:var(--radius);background:#fff}  # noqa: E501
+figure{margin:1.2rem 0}figure img{max-width:100%;height:auto;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
 figcaption{color:var(--muted);font-size:.85rem;margin-top:.3rem}
 blockquote{border-left:3px solid var(--accent);margin:1rem 0;padding:.2rem 1rem;color:var(--muted)}
 ol.sources{padding-left:2.2rem}ol.sources li{margin:.35rem 0;word-break:break-word}

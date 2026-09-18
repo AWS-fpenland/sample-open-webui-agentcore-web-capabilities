@@ -107,10 +107,10 @@ def main() -> int:
             page = context.pages[0] if context.pages else context.new_page()
             page.set_viewport_size({"width": 1440, "height": 900})
             console: list[dict] = []  # browser console errors + uncaught exceptions + failed requests → evidence
-            page.on("console", lambda m: console.append({"type": m.type, "text": m.text[:300]}) if m.type in ("error", "warning") else None)
+            page.on("console", lambda m: console.append({"type": m.type, "text": m.text[:300]}) if m.type in ("error", "warning") else None)  # noqa: E501
             page.on("pageerror", lambda e: console.append({"type": "pageerror", "text": str(e)[:400]}))
-            page.on("requestfailed", lambda r: console.append({"type": "requestfailed", "text": f"{r.method} {r.url[:160]} {r.failure}"}))
-            page.on("response", lambda r: console.append({"type": "http_error", "text": f"{r.status} {r.url[:160]}"}) if r.status >= 400 else None)
+            page.on("requestfailed", lambda r: console.append({"type": "requestfailed", "text": f"{r.method} {r.url[:160]} {r.failure}"}))  # noqa: E501
+            page.on("response", lambda r: console.append({"type": "http_error", "text": f"{r.status} {r.url[:160]}"}) if r.status >= 400 else None)  # noqa: E501
             out["console"] = console
             if a.owui_url:  # one identity: sign in to Open WebUI first, the Workbench then reuses the Cognito session
                 page.goto(a.owui_url, wait_until="domcontentloaded", timeout=60_000)

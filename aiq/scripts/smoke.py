@@ -14,6 +14,8 @@ Usage (credentials for the deployment account in the environment):
 
 Operations: health | chat:<mode> <question> | submit:<mode> <question> | events <job_id> [after] | status <job_id>
             | cancel <job_id> | approve <job_id> <answer|approve|reject> | collections | ingest <collection> <file>...
+            | raw '<json op payload>'  (phase 3: packages.list/get/update/delete/compare/rerun, export, artifact.url,
+              models, models.prefs, models.validate, eval, eval.list)
 Never prints tokens or passwords. Prints event lines as received (JSON), then a summary.
 """
 from __future__ import annotations
@@ -123,6 +125,8 @@ def main() -> int:
                    "revision": None if ans in ("approve", "reject") else ans}
     elif op == "collections":
         payload = {"op": "collections"}
+    elif op == "raw":  # phase 3: any op as JSON, e.g. raw '{"op":"packages.list","limit":5}'
+        payload = json.loads(" ".join(args))
     elif op == "ingest":
         docs = []
         for path in args[1:]:
@@ -135,7 +139,9 @@ def main() -> int:
         ap.error(f"unknown op {op}")
         return 2
     events = invoke(arn, a.region, token, sid, payload)
-    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health")]
+    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health", "packages", "package",
+                                                        "package.deleted", "comparison", "export", "artifact.url", "models",
+                                                        "models.prefs", "models.validated", "eval.started", "evals")]
     print(f"# session={sid} job_ids={sorted({e.get('job_id') for e in events if e.get('job_id')})} terminal={[e.get('type') for e in terminal][-1:]}",
           file=sys.stderr)
     return 0

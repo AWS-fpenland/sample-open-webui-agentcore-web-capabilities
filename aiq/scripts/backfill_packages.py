@@ -51,10 +51,7 @@ def main() -> int:
     done = skipped = 0
     for page in scan.paginate(TableName=st.jobs.name):
         for raw in page.get("Items", []):
-            from boto3.dynamodb.types import TypeDeserializer
-
-            d = TypeDeserializer()
-            item = _clean({k: d.deserialize(v) for k, v in raw.items()})
+            item = _clean(raw)  # the resource's client already returns plain Python values
             if not str(item.get("sk", "")).startswith("JOB#"):
                 continue
             tenant = str(item["pk"]).removeprefix("TENANT#")

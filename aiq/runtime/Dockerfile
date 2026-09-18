@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
     AIQ_SOURCE_COMMIT=${SOURCE_COMMIT} AIQ_UPSTREAM_REF=${AIQ_UPSTREAM_REF} AIQ_UPSTREAM_REPO=${AIQ_UPSTREAM_REPO}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=uv /uv /uvx /usr/local/bin/
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl g++ \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl g++ fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # 1. Upstream AI-Q at the pinned commit (source kept: workspace packages are installed editable)

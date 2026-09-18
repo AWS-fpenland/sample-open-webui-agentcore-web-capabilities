@@ -313,29 +313,30 @@ async def export(principal: Principal, body: InvokeRequest) -> AsyncIterator[str
         return
     theme = body.theme or "dark"
     prefix = manifest["retention"]["s3_prefix"]
-    report_sha = manifest["report"].get("sha256") or ""
+    try:
+        from .exports import service as exp
+        from .exports.bundle import PackageBundle
+    except Exception as e:  # noqa: BLE001
+        yield _err(ErrorCode.INTERNAL, f"export renderers unavailable in this image ({e.__class__.__name__})")
+        return
+    manifest_fmt = exp.MANIFEST_FORMAT.get(fmt, fmt) if hasattr(exp, "MANIFEST_FORMAT") else fmt
+    filename = exp.export_filename(body.job_id, fmt, theme)
+    content_type = exp.CONTENT_TYPES[fmt]
+    # cache: same format + theme rendered from the current report (finalize() clears `exports` when the report changes)
     cached = next(
         (
             x
             for x in manifest.get("exports", [])
-            if x.get("format") == fmt and x.get("theme") == theme and x.get("report_sha256") == report_sha and st.head(x["key"])
+            if x.get("format") == manifest_fmt and (x.get("theme") or "dark") == theme and st.head(x["key"])
         ),
         None,
     )
     t0 = time.monotonic()
+    was_cached = cached is not None
     if cached is None:
-        try:
-            from .exports import service as exp
-            from .exports.bundle import PackageBundle
-        except Exception as e:  # noqa: BLE001
-            yield _err(ErrorCode.INTERNAL, f"export renderers unavailable in this image ({e.__class__.__name__})")
-            return
         report_md = st.get_text(manifest["report"]["key"])
-        ledger = (
-            json.loads(st.get_text(manifest["citations"]["ledger_key"]))
-            if manifest["citations"].get("ledger_key") and st.head(manifest["citations"]["ledger_key"])
-            else None
-        )
+        lk = manifest["citations"].get("ledger_key")
+        ledger = json.loads(st.get_text(lk)) if lk and st.head(lk) else None
         arts: list[tuple[dict[str, Any], bytes]] = []
         for a in manifest.get("artifacts", [])[:20]:
             if a.get("storage_key") and st.head(a["storage_key"]):
@@ -359,52 +360,36 @@ async def export(principal: Principal, body: InvokeRequest) -> AsyncIterator[str
             return
         key = prefix + f"exports/{rendered.filename}"
         st.put_bytes(key, rendered.data, rendered.content_type)
-        cached = {
-            "format": fmt,
-            "theme": theme,
-            "key": key,
-            "filename": rendered.filename,
-            "content_type": rendered.content_type,
-            "sha256": rendered.sha256,
-            "size_bytes": rendered.size,
-            "created_at": now_iso(),
-            "derived": rendered.derived,
-            "generator": rendered.backend or "aiq_agentcore.exports",
-            "report_sha256": report_sha,
-        }
+        cached = rendered.manifest_record(now_iso(), key=key)  # schema-shaped ExportRecord
+        cached.setdefault("theme", theme)
         manifest["exports"] = [
-            x for x in manifest.get("exports", []) if not (x.get("format") == fmt and x.get("theme") == theme)
+            x
+            for x in manifest.get("exports", [])
+            if not (x.get("format") == manifest_fmt and (x.get("theme") or "dark") == theme)
         ] + [cached]
         packages.write_manifest(st, manifest)
         idx = st.index_for_job(principal.tenant_key, body.job_id) or {}
         counts = dict(idx.get("counts") or {})
         counts["exports"] = len(manifest["exports"])
         st.update_package_index(principal.tenant_key, body.job_id, counts=counts)
-        was_cached = False
-    else:
-        was_cached = True
-    url = st.presign(cached["key"], filename=cached["filename"], content_type=cached["content_type"], ttl=600)
+        filename, content_type = rendered.filename, rendered.content_type
+    url = st.presign(cached["key"], filename=filename, content_type=content_type, ttl=600)
     yield _line(
         {
             "type": "export",
             "seq": 0,
             "job_id": body.job_id,
             "data": {
-                **{
-                    k: cached[k]
-                    for k in (
-                        "format",
-                        "theme",
-                        "filename",
-                        "content_type",
-                        "sha256",
-                        "size_bytes",
-                        "derived",
-                        "generator",
-                        "key",
-                    )
-                },
+                "format": fmt,
+                "theme": theme,
+                "filename": filename,
+                "content_type": content_type,
+                "sha256": cached["sha256"],
                 "size": cached["size_bytes"],
+                "size_bytes": cached["size_bytes"],
+                "derived": cached.get("derived", False),
+                "generator": cached.get("generator"),
+                "key": cached["key"],
                 "url": url,
                 "expires_in": 600,
                 "cached": was_cached,

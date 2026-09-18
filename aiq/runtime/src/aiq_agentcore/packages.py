@@ -371,9 +371,10 @@ def finalize(
         runtime_version=runtime_version,
         artifacts=artifacts if artifacts is not None else (existing or {}).get("artifacts"),
     )
-    if existing:  # user-owned fields and exports persist across refreshes
+    if existing:  # user-owned fields and exports persist across refreshes (exports only while the report is unchanged)
         manifest["organization"] = existing.get("organization") or manifest["organization"]
-        manifest["exports"] = existing.get("exports") or []
+        same_report = (existing.get("report") or {}).get("sha256") == manifest["report"].get("sha256")
+        manifest["exports"] = (existing.get("exports") or []) if same_report else []
         manifest["evals"] = existing.get("evals") or []
         if existing.get("title") and not rec.title:
             manifest["title"] = existing["title"]

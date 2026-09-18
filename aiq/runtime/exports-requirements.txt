@@ -1,0 +1,11 @@
+# Export renderers (aiq_agentcore.exports) — exact pins that resolve as wheels for CPython 3.12 / manylinux aarch64
+# (research-tracks/phase3-export/proto/wheels-aarch64-cp312.txt, pip download 2026-09-18). Merge into pyproject
+# [project.dependencies] and the Dockerfile's adapter `uv pip install` line. Test-only: pypdf, bibtexparser, rispy,
+# jsonschema (not needed in the image).
+markdown-it-py==4.2.0
+python-docx==1.2.0
+python-pptx==1.0.2
+reportlab==5.0.1
+pillow==12.3.0
+# transitive (resolved by the pins above; listed for the image's dependency report): mdurl==0.1.2, lxml==6.1.3,
+# typing_extensions==4.16.0, XlsxWriter==3.2.9

@@ -459,6 +459,7 @@ def _trim_entry(e: dict[str, Any]) -> dict[str, Any]:
         "capability_errors": {
             k: v.get("error_message") for k, v in (e.get("capabilities") or {}).items() if v.get("error_message")
         },
+        "raw_error": ((e.get("capabilities") or {}).get("plain") or {}).get("error_message"),
     }
 
 

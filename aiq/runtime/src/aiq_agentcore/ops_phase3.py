@@ -430,9 +430,13 @@ async def artifact_url(principal: Principal, body: InvokeRequest) -> AsyncIterat
 
 
 def _trim_entry(e: dict[str, Any]) -> dict[str, Any]:
+    # every probe key is always present so clients can index them without guards (unprobed → ok False, error "unprobed")
+    raw_caps = e.get("capabilities") or {}
     caps = {
-        k: {"ok": v.get("ok"), "error_code": v.get("error_code"), "ms": v.get("ms")}
-        for k, v in (e.get("capabilities") or {}).items()
+        p: {"ok": bool((raw_caps.get(p) or {}).get("ok")),
+            "error_code": (raw_caps.get(p) or {}).get("error_code") or ("unprobed" if p not in raw_caps else None),
+            "ms": (raw_caps.get(p) or {}).get("ms")}
+        for p in ("plain", "system", "stream", "tools", "json", "long", "reasoning")
     }
     return {
         k: e.get(k)

@@ -42,12 +42,14 @@ const QUESTIONS = [
 ];
 
 function Caps({ e }: { e: MatrixEntry }) {
-  const title = (['plain', 'system', 'stream', 'tools', 'json', 'long', 'reasoning'] as const).map((k) => `${k}: ${e.capabilities[k].ok ? 'ok' : e.capabilities[k].error_code ?? 'failed'}${e.capabilities[k].ms ? ` (${e.capabilities[k].ms} ms)` : ''}`).join('\n');
+  const caps = e.capabilities ?? ({} as typeof e.capabilities);
+  const capOf = (k: string) => (caps as Record<string, { ok?: boolean; error_code?: string | null; ms?: number | null } | undefined>)[k] ?? { ok: false, error_code: 'not_probed', ms: null };
+  const title = (['plain', 'system', 'stream', 'tools', 'json', 'long', 'reasoning'] as const).map((k) => `${k}: ${capOf(k).ok ? 'ok' : capOf(k).error_code ?? 'failed'}${capOf(k).ms ? ` (${capOf(k).ms} ms)` : ''}`).join('\n');
   return (
     <span className="caps" title={title} aria-label={title.replace(/\n/g, ', ')}>
       {DOTS.map((d) => {
-        const c = e.capabilities[d.key];
-        const cls = c.ok ? 'cap-ok' : c.error_code === 'not_probed' || (!e.capabilities.plain.ok && d.key !== 'plain') ? 'cap-na' : 'cap-no';
+        const c = capOf(d.key);
+        const cls = c.ok ? 'cap-ok' : c.error_code === 'not_probed' || c.error_code === 'unprobed' || (!capOf('plain').ok && d.key !== 'plain') ? 'cap-na' : 'cap-no';
         return <i key={d.key} className={`cap ${cls}`} />;
       })}
     </span>
@@ -553,7 +555,7 @@ function EvalDialog({ open, onClose, onStarted }: { open: boolean; onClose: () =
       window.clearTimeout(t);
     };
   }, [api, sel]);
-  const judges = data.entries.filter((e) => e.offered && e.roles_selectable.writer && e.capabilities.json.ok).filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i).sort((a, b) => b.roles.writer.score - a.roles.writer.score);
+  const judges = data.entries.filter((e) => e.offered && e.roles_selectable?.writer && e.capabilities?.json?.ok).filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i).sort((a, b) => b.roles.writer.score - a.roles.writer.score);
   const start = async () => {
     setBusy(true);
     setError(null);

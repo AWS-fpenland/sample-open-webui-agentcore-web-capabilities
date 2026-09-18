@@ -38,6 +38,9 @@ FORMATS = ("pdf", "docx", "pptx", "html", "md", "json", "csv", "bibtex", "ris", 
 
 
 class Action:
+    # Open WebUI reads the sub-action list from the *instance* (`function_module.actions`), not from the module.
+    actions = actions
+
     class Valves(BaseModel):
         RUNTIME_ARN: str = Field(default="", description="AgentCore Runtime ARN for AI-Q.")
         REGION: str = Field(default="us-east-1")

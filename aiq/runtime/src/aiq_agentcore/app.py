@@ -116,6 +116,10 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
     tenant = principal.tenant_key
     cancelled = _cancel_flags.setdefault(job_id, asyncio.Event())
     st.update_job(tenant, job_id, status=JobStatus.RUNNING.value, heartbeat_at=now_iso())
+    try:  # the library row should say "running", not "queued", while the job is in flight
+        st.update_package_index(tenant, job_id, status=JobStatus.RUNNING.value)
+    except Exception:  # noqa: BLE001
+        log.debug("package index status refresh skipped", exc_info=True)
     started = time.monotonic()
     last_cancel_check = 0.0
     terminal_seen = False
@@ -224,24 +228,28 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
             is_terminal = ev.type in (EventType.COMPLETED, EventType.CANCELLED) or (
                 ev.type == EventType.ERROR and ev.data.get("terminal")
             )
+            final_status: JobStatus | None = None
+            final_error: str | None = None
             if is_terminal:
                 # ADR-21: the Research Package is finalised BEFORE the terminal event is journaled, so every tail (pipe,
-                # workbench) receives the `package` summary and then the terminal marker, in that order.
+                # workbench) receives the `package` summary and then the terminal marker, in that order — and the job
+                # record flips to its terminal status only AFTER the terminal marker exists (status terminal ⇒ journal complete).
                 if ev.type == EventType.COMPLETED:
-                    st.update_job(tenant, job_id, status=JobStatus.COMPLETED.value)
+                    final_status = JobStatus.COMPLETED
                 elif ev.type == EventType.CANCELLED:
-                    st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
-                    outcome = "cancelled"
+                    final_status, outcome = JobStatus.CANCELLED, "cancelled"
                 else:
                     err = ev.data.get("error") or {}
-                    st.update_job(tenant, job_id, status=JobStatus.FAILED.value, error=str(err.get("message", ""))[:1000])
-                    outcome = "failed"
-                pkg_ev = await _finalize_package(st, tenant, job_id, emit=True)
+                    final_status, outcome = JobStatus.FAILED, "failed"
+                    final_error = str(err.get("message", ""))[:1000]
+                pkg_ev = await _finalize_package(st, tenant, job_id, emit=True, status=final_status, error=final_error)
                 if pkg_ev is not None:
                     yield pkg_ev
                 finalized = True
                 terminal_seen = True
             stored = await asyncio.get_running_loop().run_in_executor(None, st.append_event, tenant, job_id, ev.type, ev.data)
+            if final_status is not None:
+                st.update_job(tenant, job_id, status=final_status.value, **({"error": final_error} if final_error else {}))
             yield stored
             if terminal_seen:
                 break
@@ -252,16 +260,22 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
                 return  # waiting on the user; not terminal
             if cancelled.is_set():
                 outcome = "cancelled"
-                st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
-                yield st.append_event(tenant, job_id, EventType.CANCELLED, {"reason": "cancel_requested"})
-            else:
-                st.update_job(tenant, job_id, status=JobStatus.COMPLETED.value)
-                yield st.append_event(
-                    tenant,
-                    job_id,
-                    EventType.COMPLETED,
-                    {"status": "completed", "note": "engine ended without explicit completion"},
+                end_status, terminal_type, terminal_data = (
+                    JobStatus.CANCELLED,
+                    EventType.CANCELLED,
+                    {"reason": "cancel_requested"},
                 )
+            else:
+                end_status, terminal_type = JobStatus.COMPLETED, EventType.COMPLETED
+                terminal_data = {"status": "completed", "note": "engine ended without explicit completion"}
+            # ADR-21 holds on this path too: package summary first, terminal marker last, then the status flip.
+            pkg_ev = await _finalize_package(st, tenant, job_id, emit=True, status=end_status)
+            if pkg_ev is not None:
+                yield pkg_ev
+            finalized = True
+            stored = st.append_event(tenant, job_id, terminal_type, terminal_data)
+            st.update_job(tenant, job_id, status=end_status.value)
+            yield stored
     except asyncio.CancelledError:
         outcome = "cancelled"
         st.update_job(tenant, job_id, status=JobStatus.CANCELLED.value)
@@ -347,12 +361,19 @@ def _resolve_models(principal: Principal, body: InvokeRequest) -> tuple[dict[str
     return roles, None
 
 
-async def _finalize_package(st: JobStore, tenant: str, job_id: str, *, emit: bool) -> Event | None:
-    """Build/refresh the manifest + PKG# row; optionally return a journaled `package` summary event (ADR-21)."""
+async def _finalize_package(
+    st: JobStore, tenant: str, job_id: str, *, emit: bool, status: JobStatus | None = None, error: str | None = None
+) -> Event | None:
+    """Build/refresh the manifest + PKG# row; optionally return a journaled `package` summary event (ADR-21).
+
+    `status`/`error` let the caller finalize with the *intended* terminal state before the job record flips, so that
+    "status is terminal" always implies "the journal is complete" (package summary, then the terminal marker)."""
     try:
         rec_final = st.get_job(tenant, job_id)
         if rec_final is None:
             return None
+        if status is not None:
+            rec_final = rec_final.model_copy(update={"status": status, **({"error": error} if error else {})})
         arts = [
             e.data.get("record")
             for e in st.read_events(job_id, after=0, limit=2000)

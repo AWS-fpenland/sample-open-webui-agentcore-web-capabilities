@@ -122,14 +122,16 @@ def main() -> int:
             if row.status_code == 200 and row.json():
                 model = row.json()
                 meta = dict(model.get("meta") or {})
-                meta["actionIds"] = sorted(set((meta.get("actionIds") or []) + [f"{aid}.{s['id']}" for s in
-                                                                                  [{"id": "export"}, {"id": "rerun"}, {"id": "compare"}, {"id": "open"}]]))  # noqa: E501
+                # Open WebUI expands an Action function's sub-actions itself (`Action.actions` → "<function id>.<sub id>");
+                # the row must carry the *function* id — sub-action ids are filtered out (verified 2026-09-18, `actions: []`).
+                stale = {f"{aid}.{x}" for x in ("export", "rerun", "compare", "open")}
+                meta["actionIds"] = sorted((set(meta.get("actionIds") or []) - stale) | {aid})
                 form = {"id": mid, "base_model_id": model.get("base_model_id"), "name": model.get("name") or MODEL_NAMES[mode], "meta": meta,  # noqa: E501
                         "params": model.get("params") or {}, "access_grants": model.get("access_grants") or grants, "is_active": True}  # noqa: E501
                 r = c.post("/api/v1/models/model/update", params={"id": mid}, json=form)
             else:
                 form = {"id": mid, "base_model_id": None, "name": MODEL_NAMES[mode],
-                        "meta": {"actionIds": [f"{aid}.export", f"{aid}.rerun", f"{aid}.compare", f"{aid}.open"]}, "params": {},
+                        "meta": {"actionIds": [aid]}, "params": {},
                         "access_grants": grants, "is_active": True}
                 r = c.post("/api/v1/models/create", json=form)
             print(f"bind actions → {mid}: {r.status_code}", (r.text[:160] if r.status_code >= 300 else "ok"))

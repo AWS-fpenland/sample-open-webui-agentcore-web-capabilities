@@ -469,8 +469,11 @@ export class AiqStack extends cdk.Stack {
     // (bedrock:CallWithBearerToken is what the presigned token authorises) and calls bedrock-mantle with it.
     runtimeRole.addToPolicy(new iam.PolicyStatement({
       sid: 'BedrockMantleLanes',
-      actions: ['bedrock:CallWithBearerToken', 'bedrock-mantle:CallWithBearerToken', 'bedrock-mantle:InvokeModel',
-        'bedrock-mantle:InvokeModelWithResponseStream', 'bedrock-mantle:ListFoundationModels'],
+      // bedrock-mantle:CreateInference on the account's default Mantle project is what the OpenAI/Anthropic-compatible
+      // endpoints authorise (verified 2026-09-18: without it the Anthropic lane answers HTTP 403 for the runtime role while
+      // the same call succeeds for an operator — see 13-model-plane.md §7c).
+      actions: ['bedrock:CallWithBearerToken', 'bedrock-mantle:CallWithBearerToken', 'bedrock-mantle:CreateInference',
+        'bedrock-mantle:InvokeModel', 'bedrock-mantle:InvokeModelWithResponseStream', 'bedrock-mantle:ListFoundationModels'],
       resources: ['*'],
     }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({

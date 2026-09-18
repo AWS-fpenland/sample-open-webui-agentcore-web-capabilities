@@ -137,7 +137,7 @@ def pick_model(page, model_id: str):
 
 def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, reload_after_s: int | None,
          stop_after_s: int | None = None, follow_ups: list[str] | None = None, follow_up_wait: int = 600,
-         reload_at_end: bool = False) -> dict:
+         reload_at_end: bool = False, click_action: str | None = None) -> dict:
     # Open WebUI pre-selects models from the `models` query parameter on a new chat (no DOM fiddling needed).
     page.goto(url.rstrip("/") + f"/?models={model_id}", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(4000)
@@ -238,11 +238,25 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
             url: location.href,
             chips: [...document.querySelectorAll('a, button, div')].map(e => (e.innerText || '').trim())
                 .filter(t => /\.(pdf|md|docx|pptx|html|json|csv|zip|bib|ris)$/i.test(t.split('\n')[0]) && t.length < 120).slice(0, 8),
-            action_buttons: [...document.querySelectorAll('button')].map(b => b.getAttribute('aria-label') || b.getAttribute('title') || '')
+            action_buttons: [...document.querySelectorAll('[aria-label], [title], button')].map(b => b.getAttribute('aria-label') || b.getAttribute('title') || '')
                 .filter(t => /export|re-run|rerun|compare|open package|open the package/i.test(t)).slice(0, 12),
             links: [...document.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(h => /aiq\.|\/p\/job_|X-Amz-Signature|\/api\/v1\/files\//.test(h)).map(h => h.replace(/X-Amz-Signature=[0-9a-f]+/, 'X-Amz-Signature=<redacted>').slice(0, 160)).slice(0, 8),
-        })""")
-        print(f"# after reload: chips={result['after_reload']['chips']} actions={result['after_reload']['action_buttons']}", file=sys.stderr)
+        })""")  # noqa: E501
+        print(f"# after reload: chips={result['after_reload']['chips']} actions={result['after_reload']['action_buttons']}", file=sys.stderr)  # noqa: E501
+        if click_action:
+            target = page.locator(f"[aria-label*='{click_action}' i], [title*='{click_action}' i]").last
+            found = target.count() > 0
+            if found:
+                target.scroll_into_view_if_needed()
+                target.click()
+                page.wait_for_timeout(7000)
+            shot(page, out_dir, "30-action-clicked.png")
+            result["action_click"] = {"label": click_action, "found": found, **page.evaluate("""() => ({
+                toasts: [...document.querySelectorAll('[role=status], [role=alert], .toast, [data-sonner-toast]')].map(e => (e.innerText || '').trim()).filter(Boolean).slice(0, 5),
+                dialog_inputs: [...document.querySelectorAll('input, textarea')].filter(e => e.offsetParent !== null && e.id !== 'chat-input').map(e => e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.type).slice(0, 5),
+                last_message_tail: (() => { const ms = [...document.querySelectorAll('[id^=message-]')]; const last = ms[ms.length - 1]; return last ? (last.innerText || '').trim().slice(-600) : null; })(),
+            })""")}  # noqa: E501
+            print(f"# action click {click_action}: found={found} toasts={result['action_click']['toasts']} inputs={result['action_click']['dialog_inputs']}", file=sys.stderr)  # noqa: E501
     if chat_id:
         chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])  # noqa: E501
         # Open WebUI persists the full tree under chat.history.messages (chat.messages holds only the linear user turns).
@@ -252,7 +266,7 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         last = assistant[-1] if assistant else {}
         result["assistant_turns"] = [{"content": (x.get("content") or "")[:4000], "done": x.get("done"),
                                       "sources": len(x.get("sources") or []), "statuses": len(x.get("statusHistory") or []),
-                                      "files": [(f.get("name") or (f.get("file") or {}).get("filename") or f.get("type")) for f in (x.get("files") or [])]}
+                                      "files": [(f.get("name") or (f.get("file") or {}).get("filename") or f.get("type")) for f in (x.get("files") or [])]}  # noqa: E501
                                      for x in assistant]
         result["assistant"] = {
             "content": (last.get("content") or "")[:20000],
@@ -283,6 +297,7 @@ def main() -> int:
     ap.add_argument("--stop-after", type=int, default=None, help="press Stop after N seconds (cancel test)")
     ap.add_argument("--follow-up", action="append", default=[], help="additional message(s) to send after the first answer")
     ap.add_argument("--reload-at-end", action="store_true", help="reload after the last turn and record chips/action buttons")
+    ap.add_argument("--click-action", default=None, help="after the reload: click the action button whose tooltip contains this text")  # noqa: E501
     ap.add_argument("--follow-up-wait", type=int, default=600)
     ap.add_argument("--session-timeout", type=int, default=1500)
     ap.add_argument("action", choices=["login", "chat"])
@@ -305,7 +320,7 @@ def main() -> int:
                     f.write(info["token"])
                 out["token_saved"] = True
             if a.action == "chat":
-                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after, a.stop_after, a.follow_up, a.follow_up_wait, a.reload_at_end)  # noqa: E501
+                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after, a.stop_after, a.follow_up, a.follow_up_wait, a.reload_at_end, a.click_action)  # noqa: E501
             browser.close()
     finally:
         try:

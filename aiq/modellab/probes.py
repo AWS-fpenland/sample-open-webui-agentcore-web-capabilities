@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
-PROBES = ("plain", "system", "stream", "tools", "json", "long", "reasoning")
+PROBES = ("plain", "system", "stream", "tools", "json", "long", "reasoning", "temperature")
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _TOOL = {
     "name": "get_weather",
@@ -310,6 +310,29 @@ class ConverseProber:
 
         return self._wrap("long", run)
 
+    def temperature(self, model_id: str) -> ProbeResult:
+        """Does the model accept a sampling `temperature`? (Claude Sonnet 5 on Mantle rejects it — parameter × model matters.)"""
+
+        def run():
+            t0 = time.monotonic()
+            r = self._client.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": "Reply with exactly the word OK."}]}],
+                inferenceConfig={"maxTokens": 64, "temperature": 0.2},
+            )
+            text, _ = self._text(r)
+            u = r.get("usage", {})
+            return ProbeResult(
+                "temperature",
+                "ok" in text.lower(),
+                int((time.monotonic() - t0) * 1000),
+                input_tokens=u.get("inputTokens", 0),
+                output_tokens=u.get("outputTokens", 0),
+                detail={"temperature": 0.2},
+            )
+
+        return self._wrap("temperature", run)
+
     def reasoning(self, model_id: str, family: str) -> ProbeResult:
         fields = reasoning_fields(family, "converse")
         if fields is None:
@@ -455,6 +478,10 @@ class MantleProber:
                 body["messages"] = [{"role": "user", "content": "What is 17 * 23? Think step by step, then answer."}]
                 body["max_tokens"] = 2048
                 body.update(reasoning_fields(family, "mantle_chat") or {})
+            elif probe == "temperature":
+                body["messages"] = [{"role": "user", "content": "Reply with exactly the word OK."}]
+                body["max_tokens"] = 64
+                body["temperature"] = 0.2
             r = self._post("/v1/chat/completions", body)
             if r.status_code != 200 and probe == "json":
                 # retry without response_format: the capability is "JSON on request", the mode is a bonus
@@ -471,7 +498,7 @@ class MantleProber:
             usage = obj.get("usage") or {}
             ms = int((time.monotonic() - t0) * 1000)
             detail = {"finish": ch.get("finish_reason"), "reasoning": bool(msg.get("reasoning") or msg.get("reasoning_content"))}
-            if probe == "plain":
+            if probe in ("plain", "temperature"):
                 ok = "ok" in text.lower()
             elif probe == "system":
                 ok = text.strip().lower().startswith("arr")
@@ -577,6 +604,10 @@ class MantleProber:
                 body["input"] = "What is 17 * 23? Think step by step, then answer."
                 body["max_output_tokens"] = 2048
                 body.update(reasoning_fields(family, "mantle_responses") or {})
+            elif probe == "temperature":
+                body["input"] = "Reply with exactly the word OK."
+                body["max_output_tokens"] = 64
+                body["temperature"] = 0.2
             r = self._post("/v1/responses", body)
             if r.status_code != 200 and probe == "json":
                 body.pop("text", None)
@@ -598,7 +629,7 @@ class MantleProber:
             usage = obj.get("usage") or {}
             ms = int((time.monotonic() - t0) * 1000)
             detail: dict[str, Any] = {"status": obj.get("status")}
-            if probe == "plain":
+            if probe in ("plain", "temperature"):
                 ok = "ok" in text.lower()
             elif probe == "system":
                 ok = text.strip().lower().startswith("arr")
@@ -694,6 +725,10 @@ class MantleProber:
                 body["messages"] = [{"role": "user", "content": "What is 17 * 23? Think step by step, then answer."}]
                 body["max_tokens"] = 2048
                 body.update(reasoning_fields(family, "mantle_messages") or {})
+            elif probe == "temperature":
+                body["messages"] = [{"role": "user", "content": "Reply with exactly the word OK."}]
+                body["max_tokens"] = 64
+                body["temperature"] = 0.2
             r = self._post("/anthropic/v1/messages", body, headers=hdr)
             if r.status_code != 200:
                 return self._fail(probe, t0, r)
@@ -704,7 +739,7 @@ class MantleProber:
             usage = obj.get("usage") or {}
             ms = int((time.monotonic() - t0) * 1000)
             detail: dict[str, Any] = {"stop": obj.get("stop_reason"), "thinking_blocks": thinking}
-            if probe == "plain":
+            if probe in ("plain", "temperature"):
                 ok = "ok" in text.lower()
             elif probe == "system":
                 ok = text.strip().lower().startswith("arr")
@@ -753,6 +788,7 @@ def probe_entry(
             "json": converse.json,
             "long": converse.long,
             "reasoning": lambda m: converse.reasoning(m, fam),
+            "temperature": converse.temperature,
         }
         for p in probes:
             out[p] = fns[p](mid)

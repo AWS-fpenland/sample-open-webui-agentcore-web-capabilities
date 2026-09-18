@@ -137,7 +137,7 @@ def test_resume_tails_after_pause_cursor(pipe, monkeypatch):
         {"role": "user", "content": "S3 Vectors latency"}]}
 
     async def run():
-        out = await pipe.pipe(body, __user__={"id": "u1"}, __metadata__={"chat_id": "c1", "message_id": "m2"}, __event_emitter__=None)
+        out = await pipe.pipe(body, __user__={"id": "u1"}, __metadata__={"chat_id": "c1", "message_id": "m2"}, __event_emitter__=None)  # noqa: E501
         text = ""
         async for piece in out:
             text += piece

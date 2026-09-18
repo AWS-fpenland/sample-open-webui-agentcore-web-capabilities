@@ -78,6 +78,10 @@ def build_client(model_id: str, lane: str, base: Any, region: str) -> Any:
     if lane == "mantle_messages":
         from langchain_anthropic import ChatAnthropic
 
+        # Claude Sonnet 5 on Mantle rejects `temperature` ("`temperature` is deprecated for this model", HTTP 400 —
+        # observed live 2026-09-18 when the writer copied the config's 0.2). Sampling parameters do not transfer across
+        # families; the Anthropic lane runs with the model defaults (the Model Lab records this per model: `temperature` probe).
+        settings.pop("temperature", None)
         settings.setdefault("max_tokens", 8192)
         return ChatAnthropic(
             model=model_id,

@@ -14,6 +14,8 @@ Usage (credentials for the deployment account in the environment):
 
 Operations: health | chat:<mode> <question> | submit:<mode> <question> | events <job_id> [after] | status <job_id>
             | cancel <job_id> | approve <job_id> <answer|approve|reject> | collections | ingest <collection> <file>...
+            | raw '<json op payload>'  (phase 3: packages.list/get/update/delete/compare/rerun, export, artifact.url,
+              models, models.prefs, models.validate, eval, eval.list)
 Never prints tokens or passwords. Prints event lines as received (JSON), then a summary.
 """
 from __future__ import annotations
@@ -47,6 +49,9 @@ def runtime_arn(run_id: str, region: str) -> str:
     return outs["RuntimeArn"]
 
 
+FULL = os.environ.get("SMOKE_FULL") == "1"  # print whole event lines (phase-3 responses can exceed 600 chars)
+
+
 def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, timeout: float = 900.0):
     url = f"https://bedrock-agentcore.{region}.amazonaws.com/runtimes/{quote(arn, safe='')}/invocations?qualifier=DEFAULT"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
@@ -55,7 +60,7 @@ def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, ti
     first = None
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=20.0)) as client, client.stream("POST", url, headers=headers,
                                                                                           json=payload) as resp:
-        print(f"# HTTP {resp.status_code} request-id={resp.headers.get('x-amzn-requestid')} trace={resp.headers.get('x-amzn-trace-id')}",
+        print(f"# HTTP {resp.status_code} request-id={resp.headers.get('x-amzn-requestid')} trace={resp.headers.get('x-amzn-trace-id')}",  # noqa: E501
               file=sys.stderr)
         if resp.status_code != 200:
             print(resp.read().decode()[:800], file=sys.stderr)
@@ -76,7 +81,8 @@ def invoke(arn: str, region: str, token: str, session_id: str, payload: dict, ti
             if first is None:
                 first = time.monotonic() - t0
             events.append(obj)
-            print(json.dumps(obj, ensure_ascii=False)[:600])
+            line_out = json.dumps(obj, ensure_ascii=False)
+            print(line_out if FULL else line_out[:600])
     print(f"# ttfb={first and round(first, 2)}s total={round(time.monotonic() - t0, 2)}s events={len(events)}", file=sys.stderr)
     return events
 
@@ -123,6 +129,8 @@ def main() -> int:
                    "revision": None if ans in ("approve", "reject") else ans}
     elif op == "collections":
         payload = {"op": "collections"}
+    elif op == "raw":  # phase 3: any op as JSON, e.g. raw '{"op":"packages.list","limit":5}'
+        payload = json.loads(" ".join(args))
     elif op == "ingest":
         docs = []
         for path in args[1:]:
@@ -135,8 +143,10 @@ def main() -> int:
         ap.error(f"unknown op {op}")
         return 2
     events = invoke(arn, a.region, token, sid, payload)
-    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health")]
-    print(f"# session={sid} job_ids={sorted({e.get('job_id') for e in events if e.get('job_id')})} terminal={[e.get('type') for e in terminal][-1:]}",
+    terminal = [e for e in events if e.get("type") in ("completed", "cancelled", "error", "job.status", "health", "packages", "package",  # noqa: E501
+                                                        "package.deleted", "comparison", "export", "artifact.url", "models",
+                                                        "models.prefs", "models.validated", "eval.started", "evals")]
+    print(f"# session={sid} job_ids={sorted({e.get('job_id') for e in events if e.get('job_id')})} terminal={[e.get('type') for e in terminal][-1:]}",  # noqa: E501
           file=sys.stderr)
     return 0
 

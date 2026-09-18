@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-from . import aiq_api_shim, bedrock_compat
+from . import aiq_api_shim, bedrock_compat, llm_overrides
 from .contracts import EventType, ResearchMode
 from .engine_base import Engine, EngineEvent, EngineRequest
 from .run_context import RunContext, reset_run_context, set_run_context
@@ -67,6 +67,7 @@ class AiqEngine(Engine):
         self._lock = asyncio.Lock()
         bedrock_compat.apply()
         aiq_api_shim.install()  # report follow-ups (ask/edit/delta) without the upstream job service
+        llm_overrides.apply()  # per-request model roles through LLMProvider.get (ADR-23)
 
     # ------------------------------------------------------------------ workflow lifecycle --
     def _variant_config(self, clarifier: bool) -> str:
@@ -168,23 +169,47 @@ class AiqEngine(Engine):
         registry = SourceRegistry()
         for src in ctx.sources.values():
             if src.url:
-                registry.add(SourceEntry(url=src.url, title=src.title, citation_key=None, source_type="generic",
-                                         tool_name=src.tool))
+                registry.add(
+                    SourceEntry(url=src.url, title=src.title, citation_key=None, source_type="generic", tool_name=src.tool)
+                )
             else:
-                registry.add(SourceEntry(url=None, title=src.title, citation_key=src.title, source_type="knowledge_layer",
-                                         tool_name=src.tool))
+                registry.add(
+                    SourceEntry(
+                        url=None, title=src.title, citation_key=src.title, source_type="knowledge_layer", tool_name=src.tool
+                    )
+                )
         res = verify_citations(report, registry)
         by_url = {s.url: s.source_id for s in ctx.sources.values() if s.url}
         citations = []
         for c in res.valid_citations:
             url = c.get("url")
-            citations.append({"marker": f"[{c.get('number')}]", "source_id": by_url.get(url), "url": url,
-                              "verified": True, "match_level": "exact" if url in by_url else "normalized"})
+            citations.append(
+                {
+                    "marker": f"[{c.get('number')}]",
+                    "source_id": by_url.get(url),
+                    "url": url,
+                    "verified": True,
+                    "match_level": "exact" if url in by_url else "normalized",
+                }
+            )
         for c in res.removed_citations:
-            citations.append({"marker": f"[{c.get('number')}]", "source_id": None, "url": c.get("url"),
-                              "verified": False, "match_level": "unmatched", "reason": c.get("reason")})
-        return {"citations": citations, "verified": len(res.valid_citations), "unverified": len(res.removed_citations),
-                "sources_retrieved": len(ctx.sources), "verified_report": res.verified_report}
+            citations.append(
+                {
+                    "marker": f"[{c.get('number')}]",
+                    "source_id": None,
+                    "url": c.get("url"),
+                    "verified": False,
+                    "match_level": "unmatched",
+                    "reason": c.get("reason"),
+                }
+            )
+        return {
+            "citations": citations,
+            "verified": len(res.valid_citations),
+            "unverified": len(res.removed_citations),
+            "sources_retrieved": len(ctx.sources),
+            "verified_report": res.verified_report,
+        }
 
     def _publish_artifacts(self, req: EngineRequest, ctx: RunContext) -> list[EngineEvent]:
         """Sandbox artifacts harvested by the provider → S3 (tenant-prefixed) + `artifact` events (images inline ≤1 MB)."""
@@ -195,13 +220,24 @@ class AiqEngine(Engine):
         found = take_artifacts(req.job_id)
         if not found:
             return events
+        if req.publish_artifact is not None:  # ADR-27: the adapter publishes (S3 under the package prefix + artifact event)
+            for art in found:
+                try:
+                    req.publish_artifact(art.name, art.content, art.kind)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("artifact publish failed for %s: %s", art.name, e.__class__.__name__)
+            return events
         store = JobStore()
         import base64 as _b64
+
         for art in found:
-            key = store.report_key(req.principal.tenant_key, req.job_id, f"artifacts/{art.name}")
-            ctype = {"image": "image/png" if art.name.lower().endswith(".png") else "image/jpeg",
-                     "dataset": "text/csv" if art.name.lower().endswith(".csv") else "application/json",
-                     "document": "text/markdown", "text": "text/plain"}.get(art.kind, "application/octet-stream")
+            key = store.package_prefix(req.principal.tenant_key, req.job_id) + f"artifacts/{art.name}"
+            ctype = {
+                "image": "image/png" if art.name.lower().endswith(".png") else "image/jpeg",
+                "dataset": "text/csv" if art.name.lower().endswith(".csv") else "application/json",
+                "document": "text/markdown",
+                "text": "text/plain",
+            }.get(art.kind, "application/octet-stream")
             store._s3.put_object(Bucket=store.bucket, Key=key, Body=art.content, ContentType=ctype)
             data: dict[str, Any] = {"name": art.name, "kind": art.kind, "size_bytes": len(art.content), "s3_key": key}
             if art.kind == "image" and len(art.content) <= 1_000_000:
@@ -233,8 +269,20 @@ class AiqEngine(Engine):
         def emit(etype: str, data: dict[str, Any]) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, EngineEvent(EventType(etype), data))
 
-        ctx = RunContext(job_id=req.job_id, tenant_key=req.principal.tenant_key, collection=req.collection,
-                         emit=emit, cancelled=cancelled)
+        overrides = {
+            r: c
+            for r, c in (req.models or {}).items()
+            if isinstance(c, dict) and c.get("source") in ("session_override", "tenant_preference")
+        }
+        ctx = RunContext(
+            job_id=req.job_id,
+            tenant_key=req.principal.tenant_key,
+            collection=req.collection,
+            emit=emit,
+            cancelled=cancelled,
+            model_overrides=overrides or None,
+            publish_artifact=req.publish_artifact,
+        )
         question_holder: asyncio.Future[str] = loop.create_future()
         usage = {"input_tokens": 0, "output_tokens": 0}
         llm_calls = {"n": 0}
@@ -276,18 +324,37 @@ class AiqEngine(Engine):
                         usage["output_tokens"] += int(getattr(tu, "completion_tokens", 0) or 0)
                     # Detect output truncation (Bedrock stopReason max_tokens) — a frequent silent cause of "no tool calls".
                     out = getattr(getattr(p, "data", None), "output", None)
-                    meta = getattr(out, "response_metadata", None) or (
-                        out.get("response_metadata") if isinstance(out, dict) else None) or {}
+                    meta = (
+                        getattr(out, "response_metadata", None)
+                        or (out.get("response_metadata") if isinstance(out, dict) else None)
+                        or {}
+                    )
                     stop = str(meta.get("stopReason") or meta.get("stop_reason") or meta.get("finish_reason") or "")
                     if stop.lower() in ("max_tokens", "length"):
                         llm_calls["truncated"] = llm_calls.get("truncated", 0) + 1
-                        emit("warning", {"message": f"model output truncated by max_tokens ({name or 'llm'}); "
-                                                    f"raise AIQ_MAX_TOKENS_* or reduce reasoning", "llm": name})
+                        emit(
+                            "warning",
+                            {
+                                "message": f"model output truncated by max_tokens ({name or 'llm'}); "
+                                f"raise AIQ_MAX_TOKENS_* or reduce reasoning",
+                                "llm": name,
+                            },
+                        )
             except Exception as e:  # noqa: BLE001 — never let telemetry break the run
                 log.debug("on_step error: %s", e)
 
-        yield EngineEvent(EventType.ROUTE, {"requested_mode": mode.value, "depth": depth or "auto",
-                                            "clarifier": clarifier, "collection": req.collection})
+        yield EngineEvent(
+            EventType.ROUTE,
+            {
+                "requested_mode": mode.value,
+                "depth": depth or "auto",
+                "clarifier": clarifier,
+                "collection": req.collection,
+                "data_sources": list(dict.fromkeys(req.data_sources or ["web_search"]))
+                + (["documents"] if req.collection else []),
+                "models": req.models or {},
+            },
+        )
         sm = await self._session_manager(clarifier)
         token = set_run_context(ctx)
         result_holder: dict[str, Any] = {}
@@ -323,19 +390,28 @@ class AiqEngine(Engine):
                     question = question_holder.result()
                     while not queue.empty():
                         yield queue.get_nowait()
-                    yield EngineEvent(EventType.CLARIFICATION, {"question": question, "turn": len(answered) + 1,
-                                                                "answered": [{"q": q, "a": a} for q, a in answered],
-                                                                "pending_question": question})
-                    yield EngineEvent(EventType.PLAN_APPROVAL_REQUIRED,
-                                      {"prompt": "Reply with your answer, **approve** to proceed as-is, or **cancel**."})
+                    yield EngineEvent(
+                        EventType.CLARIFICATION,
+                        {
+                            "question": question,
+                            "turn": len(answered) + 1,
+                            "answered": [{"q": q, "a": a} for q, a in answered],
+                            "pending_question": question,
+                        },
+                    )
+                    yield EngineEvent(
+                        EventType.PLAN_APPROVAL_REQUIRED,
+                        {"prompt": "Reply with your answer, **approve** to proceed as-is, or **cancel**."},
+                    )
                     return
                 if task.done():
                     break
             while not queue.empty():
                 yield queue.get_nowait()
             if task.cancelled() or cancelled.is_set():
-                yield EngineEvent(EventType.CANCELLED, {"reason": "cancel_requested",
-                                                        "seconds": round(time.monotonic() - started, 1)})
+                yield EngineEvent(
+                    EventType.CANCELLED, {"reason": "cancel_requested", "seconds": round(time.monotonic() - started, 1)}
+                )
                 return
             exc = task.exception()
             if exc is not None:
@@ -344,21 +420,43 @@ class AiqEngine(Engine):
             text = self._response_text(result)
             status, error = self._outcome(result)
             if status != "success":
-                yield EngineEvent(EventType.ERROR, {"error": {"code": "internal", "message": (error or text)[:800],
-                                                              "retryable": True}, "terminal": True,
-                                                    "workflow_outcome": status})
+                yield EngineEvent(
+                    EventType.ERROR,
+                    {
+                        "error": {"code": "internal", "message": (error or text)[:800], "retryable": True},
+                        "terminal": True,
+                        "workflow_outcome": status,
+                    },
+                )
                 return
-            verification = self._verify(text, ctx) if ctx.sources else {"citations": [], "verified": 0, "unverified": 0,
-                                                                          "sources_retrieved": 0, "verified_report": text}
+            verification = (
+                self._verify(text, ctx)
+                if ctx.sources
+                else {"citations": [], "verified": 0, "unverified": 0, "sources_retrieved": 0, "verified_report": text}
+            )
             final_text = verification.pop("verified_report") or text
             for art in self._publish_artifacts(req, ctx):
                 yield art
             yield EngineEvent(EventType.CITATIONS, verification)
-            yield EngineEvent(EventType.REPORT, {"text": final_text, "sources": [s.model_dump() for s in ctx.sources.values()],
-                                                 "mode": mode.value, "depth": depth})
-            yield EngineEvent(EventType.USAGE, {**usage, "llm_calls": llm_calls["n"],
-                                                "truncated_outputs": llm_calls.get("truncated", 0), **ctx.counters,
-                                                "seconds": round(time.monotonic() - started, 1)})
+            yield EngineEvent(
+                EventType.REPORT,
+                {
+                    "text": final_text,
+                    "sources": [s.model_dump() for s in ctx.sources.values()],
+                    "mode": mode.value,
+                    "depth": depth,
+                },
+            )
+            yield EngineEvent(
+                EventType.USAGE,
+                {
+                    **usage,
+                    "llm_calls": llm_calls["n"],
+                    "truncated_outputs": llm_calls.get("truncated", 0),
+                    **ctx.counters,
+                    "seconds": round(time.monotonic() - started, 1),
+                },
+            )
             yield EngineEvent(EventType.COMPLETED, {"status": "completed"})
         finally:
             if not task.done():

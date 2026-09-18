@@ -52,7 +52,7 @@ def invoke(arn: str, region: str, token: str, payload: dict, session_id: str, ti
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json",
                "Accept": "text/event-stream, application/json", "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": session_id}
     out = []
-    with httpx.Client(timeout=httpx.Timeout(timeout, connect=20.0)) as c, c.stream("POST", url, headers=headers, json=payload) as r:
+    with httpx.Client(timeout=httpx.Timeout(timeout, connect=20.0)) as c, c.stream("POST", url, headers=headers, json=payload) as r:  # noqa: E501
         r.raise_for_status()
         for raw in r.iter_lines():
             line = raw.strip()
@@ -102,7 +102,7 @@ def run_question(arn, region, token, q, timeout) -> dict:
             "expects_hit": f"{len(hits)}/{len(expects)}" if expects else None,
             "usage": {k: usage.get(k) for k in ("input_tokens", "output_tokens", "llm_calls", "searches", "pages", "retrievals")},
             "answer_excerpt": text[:600], "answer": text,
-            "source_list": [f"{s.get('title') or ''} | {s.get('url') or s.get('document_key') or ''}" for s in (report.get("sources") or [])[:25]]}
+            "source_list": [f"{s.get('title') or ''} | {s.get('url') or s.get('document_key') or ''}" for s in (report.get("sources") or [])[:25]]}  # noqa: E501
 
 
 def judge(bedrock, model: str, r: dict) -> dict:
@@ -149,20 +149,20 @@ def main() -> int:
         if bedrock:
             r["judge"] = judge(bedrock, a.judge_model, {**r, "id": q["question"]})
         results.append(r)
-        print(json.dumps({k: v for k, v in r.items() if k not in ("answer", "source_list")}, ensure_ascii=False)[:600], file=sys.stderr)
+        print(json.dumps({k: v for k, v in r.items() if k not in ("answer", "source_list")}, ensure_ascii=False)[:600], file=sys.stderr)  # noqa: E501
     with open(os.path.join(a.out, "results.json"), "w") as f:
         json.dump({"run_id": a.run_id, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                    "judge_model": a.judge_model, "results": results}, f, indent=2, ensure_ascii=False)
-    lines = ["| id | mode | outcome | s | sources | cit ok/bad | markers | expects | tokens in/out | searches/pages | judge g/q |",
+    lines = ["| id | mode | outcome | s | sources | cit ok/bad | markers | expects | tokens in/out | searches/pages | judge g/q |",  # noqa: E501
              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         u = r["usage"]
         j = r.get("judge") or {}
-        lines.append(f"| {r['id']} | {r['mode']} | {r['outcome']} | {r['seconds']} | {r['sources']} | {r['citations_verified']}/{r['citations_unverified']} | "
-                     f"{r['markers_in_text']} | {r['expects_hit'] or '-'} | {u.get('input_tokens')}/{u.get('output_tokens')} | {u.get('searches')}/{u.get('pages')} | "
+        lines.append(f"| {r['id']} | {r['mode']} | {r['outcome']} | {r['seconds']} | {r['sources']} | {r['citations_verified']}/{r['citations_unverified']} | "  # noqa: E501
+                     f"{r['markers_in_text']} | {r['expects_hit'] or '-'} | {u.get('input_tokens')}/{u.get('output_tokens')} | {u.get('searches')}/{u.get('pages')} | "  # noqa: E501
                      f"{j.get('groundedness', '-')}/{j.get('quality', '-')} |")
     with open(os.path.join(a.out, "results.md"), "w") as f:
-        f.write("\n".join(lines) + "\n\n" + "\n".join(f"- **{r['id']}** judge: {(r.get('judge') or {}).get('rationale', '')}" for r in results) + "\n")
+        f.write("\n".join(lines) + "\n\n" + "\n".join(f"- **{r['id']}** judge: {(r.get('judge') or {}).get('rationale', '')}" for r in results) + "\n")  # noqa: E501
     print("\n".join(lines))
     return 0
 

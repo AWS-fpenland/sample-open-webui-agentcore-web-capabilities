@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT-0
 import asyncio
 
-import pytest
 
 from aiq_agentcore.contracts import EventType, JobStatus, ResearchMode
 

@@ -12,7 +12,9 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as path from 'path';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import { Construct } from 'constructs';
+import { AiqWorkbench } from './aiq-workbench';
 
 /**
  * AI-Q on Amazon Bedrock AgentCore — one additive, run-scoped stack.
@@ -87,6 +89,18 @@ export interface AiqStackProps extends cdk.StackProps {
   /** Output token budgets for the deep roles (planner/researchers) and the writer. */
   readonly maxTokensDeep?: number;
   readonly maxTokensWriter?: number;
+  /** Phase 3 — Research Workbench (CloudFront + OAC static SPA, own PKCE client on the same pool). Absent = not deployed. */
+  readonly workbench?: {
+    readonly distDir: string;
+    readonly owuiUrl: string;
+    readonly cognitoDomainPrefix: string;
+    readonly domainName?: string;
+    readonly certificateArn?: string;
+    readonly hostedZoneId?: string;
+    readonly hostedZoneName?: string;
+    /** Known runtime ARN (from a previous deploy) written into the SPA's config.json. */
+    readonly runtimeArnHint?: string;
+  };
 }
 
 export const WEB_SEARCH_CONNECTOR_ID = 'web-search';
@@ -151,6 +165,7 @@ export class AiqStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       lifecycleRules: [
+        // phase-2 job layout expires with the journal; phase-3 Research Packages live under packages/<tenant>/ with NO expiry (ADR-21)
         { prefix: 'tenants/', expiration: cdk.Duration.days(retentionDays) },
         { prefix: 'source/', expiration: cdk.Duration.days(retentionDays) },
         { prefix: 'builds/', expiration: cdk.Duration.days(retentionDays) },
@@ -450,6 +465,17 @@ export class AiqStack extends cdk.Stack {
     // "Your AWS Marketplace subscription for this model cannot be completed" (observed live 2026-09-15). The actions
     // do not support resource-level scoping; restrict further with aws-marketplace:ProductId once the model product
     // ids are pinned (follow-up). Reference: repost.aws/knowledge-center/bedrock-resolve-marketplace-permission
+    // Phase 3 — Mantle lanes (ADR-29): the runtime mints a short-term Bedrock API key from its own role
+    // (bedrock:CallWithBearerToken is what the presigned token authorises) and calls bedrock-mantle with it.
+    runtimeRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'BedrockMantleLanes',
+      // bedrock-mantle:CreateInference on the account's default Mantle project is what the OpenAI/Anthropic-compatible
+      // endpoints authorise (verified 2026-09-18: without it the Anthropic lane answers HTTP 403 for the runtime role while
+      // the same call succeeds for an operator — see 13-model-plane.md §7c).
+      actions: ['bedrock:CallWithBearerToken', 'bedrock-mantle:CallWithBearerToken', 'bedrock-mantle:CreateInference',
+        'bedrock-mantle:InvokeModel', 'bedrock-mantle:InvokeModelWithResponseStream', 'bedrock-mantle:ListFoundationModels'],
+      resources: ['*'],
+    }));
     runtimeRole.addToPolicy(new iam.PolicyStatement({
       sid: 'BedrockModelActivation',
       actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe'],
@@ -470,6 +496,12 @@ export class AiqStack extends cdk.Stack {
     this.artifacts.grantReadWrite(runtimeRole, 'tenants/*');
     this.artifacts.grantReadWrite(runtimeRole, 'documents/*');
     this.artifacts.grantDelete(runtimeRole, 'documents/*');
+    // Phase 3: Research Packages (manifest, report, ledger, artifacts, exports — user-deletable) and the read-only
+    // Capability Matrix published by the operator (ADR-21/24).
+    this.artifacts.grantReadWrite(runtimeRole, 'packages/*');
+    this.artifacts.grantDelete(runtimeRole, 'packages/*');
+    this.artifacts.grantDelete(runtimeRole, 'tenants/*');
+    this.artifacts.grantRead(runtimeRole, 'model-lab/*');
     this.artifacts.grantRead(runtimeRole, 'builds/*');
 
     // AgentCore Browser (page loader) and Code Interpreter (sandboxed skills). The AWS-managed
@@ -571,6 +603,19 @@ export class AiqStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ReaperFunction', { value: reaper.functionName });
 
     // ── Runtime (phase 2: requires a built image) ─────────────────────────
+    let workbench: AiqWorkbench | undefined;
+    const allowedClients: string[] = [...props.allowedClientIds];
+    if (props.workbench) {
+      const pool = cognito.UserPool.fromUserPoolId(this, 'OwuiPool', props.userPoolId);
+      workbench = new AiqWorkbench(this, 'Workbench', {
+        runId, userPool: pool, region: region!, cognitoDomainPrefix: props.workbench.cognitoDomainPrefix, owuiUrl: props.workbench.owuiUrl,
+        runtimeArn: props.workbench.runtimeArnHint ?? '',
+        domainName: props.workbench.domainName, certificateArn: props.workbench.certificateArn,
+        hostedZoneId: props.workbench.hostedZoneId, hostedZoneName: props.workbench.hostedZoneName, distDir: props.workbench.distDir,
+      });
+      allowedClients.push(workbench.client.userPoolClientId);
+    }
+
     const imageRef = props.imageDigest
       ? `${this.repository.repositoryUri}@${props.imageDigest}`
       : props.imageTag ? `${this.repository.repositoryUri}:${props.imageTag}` : undefined;
@@ -587,7 +632,7 @@ export class AiqStack extends cdk.Stack {
           NetworkConfiguration: { NetworkMode: 'PUBLIC' },
           ProtocolConfiguration: 'HTTP',
           AuthorizerConfiguration: {
-            CustomJWTAuthorizer: { DiscoveryUrl: discoveryUrl, AllowedClients: props.allowedClientIds },
+            CustomJWTAuthorizer: { DiscoveryUrl: discoveryUrl, AllowedClients: allowedClients },
           },
           RequestHeaderConfiguration: { RequestHeaderAllowlist: ['Authorization'] },
           // Sessions stay alive while a deep-research job is running (HealthyBusy);
@@ -604,7 +649,9 @@ export class AiqStack extends cdk.Stack {
             AIQ_KB_ID: this.knowledgeBaseId,
             AIQ_KB_DATA_SOURCE_ID: this.dataSourceId,
             AIQ_JWT_ISSUER: issuer,
-            AIQ_JWT_ALLOWED_CLIENTS: props.allowedClientIds.join(','),
+            AIQ_JWT_ALLOWED_CLIENTS: cdk.Fn.join(',', allowedClients),
+            AIQ_WORKBENCH_URL: workbench?.url ?? '',
+            AIQ_MATRIX_KEY: 'model-lab/matrix/latest.json',
             AIQ_MODEL_ROUTER: props.models.router,
             AIQ_MODEL_SHALLOW: props.models.shallow,
             AIQ_MODEL_PLANNER: props.models.planner,

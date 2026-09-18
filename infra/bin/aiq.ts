@@ -46,9 +46,21 @@ for (const [ctxKey, filterType] of Object.entries(guardrailFilterContext)) {
   if (v) guardrailFilters[filterType] = v.toUpperCase() as GuardrailStrength;
 }
 
+const workbenchOn = app.node.tryGetContext('workbench') === 'on';
+const ctx = (k: string): string | undefined => app.node.tryGetContext(k) as string | undefined;
+
 new AiqStack(app, `aiq-${runId}`, {
   env: { account, region },
   runId,
+  // Phase 3 — Research Workbench SPA (build first: cd aiq/workbench && npm run build)
+  workbench: workbenchOn ? {
+    distDir: `${__dirname}/../../aiq/workbench/dist`,
+    owuiUrl: ctx('owuiUrl') ?? '',
+    cognitoDomainPrefix: ctx('cognitoDomainPrefix') ?? `open-webui-${account}`,
+    domainName: ctx('workbenchDomain'), certificateArn: ctx('certificateArn'),
+    hostedZoneId: ctx('hostedZoneId'), hostedZoneName: ctx('hostedZoneName'),
+    runtimeArnHint: ctx('runtimeArnHint'),
+  } : undefined,
   userPoolId,
   allowedClientIds,
   imageTag,

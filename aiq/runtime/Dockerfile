@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
     AIQ_SOURCE_COMMIT=${SOURCE_COMMIT} AIQ_UPSTREAM_REF=${AIQ_UPSTREAM_REF} AIQ_UPSTREAM_REPO=${AIQ_UPSTREAM_REPO}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=uv /uv /uvx /usr/local/bin/
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl g++ \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl g++ fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # 1. Upstream AI-Q at the pinned commit (source kept: workspace packages are installed editable)
@@ -49,12 +49,15 @@ ENV PATH="/opt/venv/bin:${PATH}" VIRTUAL_ENV=/opt/venv
 # 3. This adapter (AWS-side): identity, jobs/events, AgentCore-native tools, entrypoint
 WORKDIR /app
 COPY pyproject.toml README.md upstream.pin ./
+COPY exports-requirements.txt* ./
 COPY src ./src
 COPY configs ./configs
 # Adapter dependencies not present in upstream's lock (bedrock-agentcore SDK, PyJWT). uv keeps every
 # already-installed locked version that satisfies the constraints; the printed report shows any change.
 RUN uv pip freeze --python /opt/venv/bin/python > /tmp/before.txt \
     && uv pip install --python /opt/venv/bin/python "bedrock-agentcore>=1.23.0,<2" "PyJWT[crypto]>=2.9,<3" "playwright>=1.50,<2" \
+         "aws-bedrock-token-generator>=1.0,<2" "langchain-openai>=0.3,<2" "langchain-anthropic>=0.3,<2" \
+    && ( [ -f exports-requirements.txt ] && uv pip install --python /opt/venv/bin/python -r exports-requirements.txt || echo "no exports-requirements.txt" ) \
     && uv pip install --python /opt/venv/bin/python --no-deps -e . \
     && uv pip freeze --python /opt/venv/bin/python > /tmp/after.txt \
     && echo "== dependency deviations from upstream lock (only lines that changed) ==" \
@@ -62,7 +65,10 @@ RUN uv pip freeze --python /opt/venv/bin/python > /tmp/before.txt \
     && python -c "import aiq_agentcore, aiq_agentcore.app, aiq_agentcore.engine_aiq, aiq_agentcore.nat_plugins.web_search, aiq_agentcore.nat_plugins.knowledge, aiq_agent, nat, langchain_aws, bedrock_agentcore, sys; print('aiq_agentcore', aiq_agentcore.__version__, 'python', sys.version.split()[0])" \
     && python -c "import importlib.metadata as m; print({p: m.version(p) for p in ['nvidia-nat-core','langchain-aws','nemo-relay','deepagents','bedrock-agentcore','boto3','pydantic','uvicorn','starlette']})" \
     && python -c "from aiq_agentcore.sandbox_agentcore import AgentCoreCodeInterpreterProvider as P; assert P is not None and isinstance(P, type), 'sandbox provider class missing'; import aiq_agentcore.nat_plugins.sandbox; from aiq_agent.agents.deep_researcher.sandbox.registry import registered_providers; assert 'agentcore_code_interpreter' in registered_providers(), registered_providers(); print('sandbox provider registered')" \
-    && python -c "from aiq_agentcore import aiq_api_shim; assert aiq_api_shim.install(); from aiq_api.jobs.report_context import resolve_authorized_report_context; print('aiq_api shim ok')"
+    && python -c "from aiq_agentcore import aiq_api_shim; assert aiq_api_shim.install(); from aiq_api.jobs.report_context import resolve_authorized_report_context; print('aiq_api shim ok')" \
+    && python -c "from aiq_agentcore import llm_overrides; assert llm_overrides.apply(), 'LLMProvider patch failed'; print('llm overrides ok')" \
+    && python -c "import aiq_agentcore.ops_phase3, aiq_agentcore.packages, aiq_agentcore.modellab_runtime; from importlib import resources; assert resources.files('aiq_agentcore').joinpath('data/eval_questions.json').is_file(); print('phase3 modules ok')" \
+    && python -c "from aiq_agentcore.exports import service; print('exports ok', len(service.FORMATS))"
 
 # Non-root; AgentCore contract: HTTP :8080 with POST /invocations and GET /ping
 RUN useradd --create-home --uid 10001 aiq && mkdir -p /app/state && chown -R aiq:aiq /app /opt/aiq

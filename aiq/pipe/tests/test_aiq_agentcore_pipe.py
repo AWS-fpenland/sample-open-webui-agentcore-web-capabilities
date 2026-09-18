@@ -107,7 +107,7 @@ def test_render_clarification_ends_turn(pipe):
 
 def test_footer_format(pipe):
     f = pipe._footer("job_" + "c" * 32, "completed", "2 searches")
-    assert f.startswith("\n\n---\n_aiq-job:job_") and f.endswith("· 2 searches_")
+    assert f.startswith("\n\n_aiq-job:job_") and "aiq-package:job_" in f and f.endswith("· 2 searches_")
 
 
 def test_resume_tails_after_pause_cursor(pipe, monkeypatch):
@@ -137,7 +137,7 @@ def test_resume_tails_after_pause_cursor(pipe, monkeypatch):
         {"role": "user", "content": "S3 Vectors latency"}]}
 
     async def run():
-        out = await pipe.pipe(body, __user__={"id": "u1"}, __metadata__={"chat_id": "c1", "message_id": "m2"}, __event_emitter__=None)
+        out = await pipe.pipe(body, __user__={"id": "u1"}, __metadata__={"chat_id": "c1", "message_id": "m2"}, __event_emitter__=None)  # noqa: E501
         text = ""
         async for piece in out:
             text += piece

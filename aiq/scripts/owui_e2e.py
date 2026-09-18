@@ -61,7 +61,7 @@ def login(page, url: str, username: str, password: str, out_dir: str) -> dict:
     except Exception:
         # Diagnostics for the harness: where are we and what does the DOM contain?
         info = page.evaluate("() => ({url: location.href, inputs: document.querySelectorAll('input').length, "
-                             "frames: window.frames.length, title: document.title, text: (document.body ? document.body.innerText : '').slice(0, 300)})")
+                             "frames: window.frames.length, title: document.title, text: (document.body ? document.body.innerText : '').slice(0, 300)})")  # noqa: E501
         print(f"# login page diagnostics: {info}", file=sys.stderr)
         shot(page, out_dir, "01b-login-timeout.png")
         for fr in page.frames[1:]:
@@ -102,7 +102,7 @@ def login(page, url: str, username: str, password: str, out_dir: str) -> dict:
     page.wait_for_url(re.compile(re.escape(url.rstrip("/")) + r".*"), timeout=60_000)
     page.wait_for_timeout(4000)
     # Dismiss release notes / first-run dialogs if present.
-    for sel in ["button:has-text('Okay, Let')", "button:has-text('Okay')", "button:has-text('Got it')", "button[aria-label='Close']"]:
+    for sel in ["button:has-text('Okay, Let')", "button:has-text('Okay')", "button:has-text('Got it')", "button[aria-label='Close']"]:  # noqa: E501
         try:
             if page.locator(sel).count():
                 page.locator(sel).first.click(timeout=2000)
@@ -112,7 +112,7 @@ def login(page, url: str, username: str, password: str, out_dir: str) -> dict:
     token = page.evaluate("() => localStorage.getItem('token')")
     me = None
     if token:
-        me = page.evaluate("""async (t) => { const r = await fetch('/api/v1/auths/', {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", token)
+        me = page.evaluate("""async (t) => { const r = await fetch('/api/v1/auths/', {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", token)  # noqa: E501
     shot(page, out_dir, "02-signed-in.png")
     return {"token": token, "me": {k: me.get(k) for k in ("id", "role", "name") if isinstance(me, dict)} if me else None}
 
@@ -136,7 +136,8 @@ def pick_model(page, model_id: str):
 
 
 def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, reload_after_s: int | None,
-         stop_after_s: int | None = None, follow_ups: list[str] | None = None, follow_up_wait: int = 600) -> dict:
+         stop_after_s: int | None = None, follow_ups: list[str] | None = None, follow_up_wait: int = 600,
+         reload_at_end: bool = False, click_action: str | None = None) -> dict:
     # Open WebUI pre-selects models from the `models` query parameter on a new chat (no DOM fiddling needed).
     page.goto(url.rstrip("/") + f"/?models={model_id}", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(4000)
@@ -148,7 +149,7 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         except Exception:
             pass
     shot(page, out_dir, "10-model-selected.png")
-    selected = page.evaluate("() => [...document.querySelectorAll('button')].map(b => b.innerText.trim()).filter(t => /AI-Q/i.test(t)).slice(0,3)")
+    selected = page.evaluate("() => [...document.querySelectorAll('button')].map(b => b.innerText.trim()).filter(t => /AI-Q/i.test(t)).slice(0,3)")  # noqa: E501
     print(f"# selected-model buttons: {selected}", file=sys.stderr)
     box = page.locator("#chat-input").first
     if box.count() == 0:
@@ -160,6 +161,9 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
     else:
         page.keyboard.type(prompt)
     page.wait_for_timeout(500)
+    if prompt.startswith("/"):  # dismiss Open WebUI's slash prompt picker so Enter sends the text as typed
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
     page.keyboard.press("Enter")
     t0 = time.time()
     page.wait_for_timeout(3000)
@@ -179,7 +183,7 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
                 btn.first.click()
                 stopped = "ui-button"
             elif chat_id:
-                stopped = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid + '/stop', {method: 'POST', headers: {Authorization: 'Bearer ' + t}}); return 'api:' + r.status; }""", [chat_id, token])
+                stopped = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid + '/stop', {method: 'POST', headers: {Authorization: 'Bearer ' + t}}); return 'api:' + r.status; }""", [chat_id, token])  # noqa: E501
             page.wait_for_timeout(3000)
             shot(page, out_dir, "15-after-stop.png")
         if reload_after_s and not reloaded and time.time() - t0 > reload_after_s:
@@ -189,14 +193,14 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
             reloaded = True
             shot(page, out_dir, "13-after-reload.png")
         if chat_id:
-            tasks = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+            tasks = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])  # noqa: E501
             ids = (tasks or {}).get("task_ids") or []
             if time.time() - t0 > 8 and not ids:
                 break
         page.wait_for_timeout(3000)
     page.wait_for_timeout(1500)
     shot(page, out_dir, "19-answer.png")
-    result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "stopped": stopped,
+    result = {"chat_id": chat_id, "url": page.url, "seconds": round(time.time() - t0, 1), "reloaded": reloaded, "stopped": stopped,  # noqa: E501
               "tasks": tasks, "follow_ups": []}
     # Optional follow-up turns in the same chat (used for clarification → approval round trips).
     for i, fu in enumerate(follow_ups or []):
@@ -206,29 +210,63 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
         if box.evaluate("e => e.tagName") == "TEXTAREA":
             box.fill(fu)
         else:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
             page.keyboard.type(fu)
         page.wait_for_timeout(400)
+        if fu.startswith("/"):
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(200)
         page.keyboard.press("Enter")
         t1 = time.time()
         page.wait_for_timeout(3000)
         shot(page, out_dir, f"2{i}-followup-sent.png")
         while time.time() - t1 < follow_up_wait:
-            tk = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+            tk = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/tasks/chat/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])  # noqa: E501
             if time.time() - t1 > 8 and not ((tk or {}).get("task_ids") or []):
                 break
             page.wait_for_timeout(3000)
         page.wait_for_timeout(1500)
         shot(page, out_dir, f"2{i}-followup-answer.png")
         result["follow_ups"].append({"prompt": fu, "seconds": round(time.time() - t1, 1)})
+    if reload_at_end:  # phase 3: attachments/chips and action buttons must survive a full page reload
+        page.wait_for_timeout(1500)
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_timeout(6000)
+        shot(page, out_dir, "29-after-final-reload.png")
+        result["after_reload"] = page.evaluate(r"""() => ({
+            url: location.href,
+            chips: [...document.querySelectorAll('a, button, div')].map(e => (e.innerText || '').trim())
+                .filter(t => /\.(pdf|md|docx|pptx|html|json|csv|zip|bib|ris)$/i.test(t.split('\n')[0]) && t.length < 120).slice(0, 8),
+            action_buttons: [...document.querySelectorAll('[aria-label], [title], button')].map(b => b.getAttribute('aria-label') || b.getAttribute('title') || '')
+                .filter(t => /export|re-run|rerun|compare|open package|open the package/i.test(t)).slice(0, 12),
+            links: [...document.querySelectorAll('a[href]')].map(a => a.getAttribute('href')).filter(h => /aiq\.|\/p\/job_|X-Amz-Signature|\/api\/v1\/files\//.test(h)).map(h => h.replace(/X-Amz-Signature=[0-9a-f]+/, 'X-Amz-Signature=<redacted>').slice(0, 160)).slice(0, 8),
+        })""")  # noqa: E501
+        print(f"# after reload: chips={result['after_reload']['chips']} actions={result['after_reload']['action_buttons']}", file=sys.stderr)  # noqa: E501
+        if click_action:
+            target = page.locator(f"[aria-label*='{click_action}' i], [title*='{click_action}' i]").last
+            found = target.count() > 0
+            if found:
+                target.scroll_into_view_if_needed()
+                target.click()
+                page.wait_for_timeout(7000)
+            shot(page, out_dir, "30-action-clicked.png")
+            result["action_click"] = {"label": click_action, "found": found, **page.evaluate("""() => ({
+                toasts: [...document.querySelectorAll('[role=status], [role=alert], .toast, [data-sonner-toast]')].map(e => (e.innerText || '').trim()).filter(Boolean).slice(0, 5),
+                dialog_inputs: [...document.querySelectorAll('input, textarea')].filter(e => e.offsetParent !== null && e.id !== 'chat-input').map(e => e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.type).slice(0, 5),
+                last_message_tail: (() => { const ms = [...document.querySelectorAll('[id^=message-]')]; const last = ms[ms.length - 1]; return last ? (last.innerText || '').trim().slice(-600) : null; })(),
+            })""")}  # noqa: E501
+            print(f"# action click {click_action}: found={found} toasts={result['action_click']['toasts']} inputs={result['action_click']['dialog_inputs']}", file=sys.stderr)  # noqa: E501
     if chat_id:
-        chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])
+        chat_json = page.evaluate("""async ([cid, t]) => { const r = await fetch('/api/v1/chats/' + cid, {headers: {Authorization: 'Bearer ' + t}}); return r.ok ? await r.json() : {status: r.status}; }""", [chat_id, token])  # noqa: E501
         # Open WebUI persists the full tree under chat.history.messages (chat.messages holds only the linear user turns).
         hist = ((((chat_json or {}).get("chat") or {}).get("history")) or {}).get("messages") or {}
         msgs = sorted(hist.values(), key=lambda x: x.get("timestamp") or 0) if isinstance(hist, dict) else []
         assistant = [x for x in msgs if x.get("role") == "assistant"]
         last = assistant[-1] if assistant else {}
         result["assistant_turns"] = [{"content": (x.get("content") or "")[:4000], "done": x.get("done"),
-                                      "sources": len(x.get("sources") or []), "statuses": len(x.get("statusHistory") or [])}
+                                      "sources": len(x.get("sources") or []), "statuses": len(x.get("statusHistory") or []),
+                                      "files": [(f.get("name") or (f.get("file") or {}).get("filename") or f.get("type")) for f in (x.get("files") or [])]}  # noqa: E501
                                      for x in assistant]
         result["assistant"] = {
             "content": (last.get("content") or "")[:20000],
@@ -236,7 +274,7 @@ def chat(page, url: str, model_id: str, prompt: str, out_dir: str, wait_s: int, 
             "model": last.get("model"),
             "sources": [{"name": (src.get("source") or {}).get("name"), "url": (src.get("source") or {}).get("url"),
                          "metadata": src.get("metadata")} for src in (last.get("sources") or [])],
-            "statusHistory": [{"description": st.get("description"), "done": st.get("done")} for st in (last.get("statusHistory") or [])],
+            "statusHistory": [{"description": st.get("description"), "done": st.get("done")} for st in (last.get("statusHistory") or [])],  # noqa: E501
             "error": last.get("error"),
         }
         result["message_count"] = len(msgs)
@@ -258,6 +296,8 @@ def main() -> int:
     ap.add_argument("--reload-after", type=int, default=None)
     ap.add_argument("--stop-after", type=int, default=None, help="press Stop after N seconds (cancel test)")
     ap.add_argument("--follow-up", action="append", default=[], help="additional message(s) to send after the first answer")
+    ap.add_argument("--reload-at-end", action="store_true", help="reload after the last turn and record chips/action buttons")
+    ap.add_argument("--click-action", default=None, help="after the reload: click the action button whose tooltip contains this text")  # noqa: E501
     ap.add_argument("--follow-up-wait", type=int, default=600)
     ap.add_argument("--session-timeout", type=int, default=1500)
     ap.add_argument("action", choices=["login", "chat"])
@@ -280,7 +320,7 @@ def main() -> int:
                     f.write(info["token"])
                 out["token_saved"] = True
             if a.action == "chat":
-                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after, a.stop_after, a.follow_up, a.follow_up_wait)
+                out["chat"] = chat(page, a.url, a.model, a.prompt, a.out_dir, a.wait, a.reload_after, a.stop_after, a.follow_up, a.follow_up_wait, a.reload_at_end, a.click_action)  # noqa: E501
             browser.close()
     finally:
         try:

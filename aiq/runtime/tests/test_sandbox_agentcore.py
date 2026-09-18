@@ -27,25 +27,25 @@ class FakeClient:
             if "__AIQ_NOT_FOUND__" in cmd:  # download shim
                 import base64 as _b
                 if cmd.rstrip().endswith("chart.png'") or "chart.png" in cmd:
-                    return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"\x89PNG\r\n").decode(), "stderr": "", "exitCode": 0}}}]}
+                    return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"\x89PNG\r\n").decode(), "stderr": "", "exitCode": 0}}}]}  # noqa: E501
                 if "missing.txt" in cmd:
-                    return {"stream": [{"result": {"structuredContent": {"stdout": "__AIQ_NOT_FOUND__\n", "stderr": "", "exitCode": 0}}}]}
-                return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"a,b\n1,2\n").decode(), "stderr": "", "exitCode": 0}}}]}
+                    return {"stream": [{"result": {"structuredContent": {"stdout": "__AIQ_NOT_FOUND__\n", "stderr": "", "exitCode": 0}}}]}  # noqa: E501
+                return {"stream": [{"result": {"structuredContent": {"stdout": _b.b64encode(b"a,b\n1,2\n").decode(), "stderr": "", "exitCode": 0}}}]}  # noqa: E501
             if cmd.startswith("find "):
-                return {"stream": [{"result": {"structuredContent": {"stdout": "/tmp/aiq/j/aiq-artifacts/chart.png\n/tmp/aiq/j/aiq-artifacts/notes.exe\n", "stderr": "", "exitCode": 0}}}]}
+                return {"stream": [{"result": {"structuredContent": {"stdout": "/tmp/aiq/j/aiq-artifacts/chart.png\n/tmp/aiq/j/aiq-artifacts/notes.exe\n", "stderr": "", "exitCode": 0}}}]}  # noqa: E501
             return {"stream": [{"result": {"content": [{"type": "text", "text": "hello"}],
                                            "structuredContent": {"stdout": "hello\n", "stderr": "warn\n", "exitCode": 3}}}]}
         if name == "writeFiles":
             if self.fail_write:
-                return {"stream": [{"result": {"isError": True, "content": [{"type": "text", "text": "absolute paths not allowed"}]}}]}
+                return {"stream": [{"result": {"isError": True, "content": [{"type": "text", "text": "absolute paths not allowed"}]}}]}  # noqa: E501
             return {"stream": [{"result": {"content": [{"type": "text", "text": "Successfully wrote"}]}}]}
         if name == "readFiles":
             path = args["paths"][0]
             if path.endswith("chart.png"):
-                return {"stream": [{"result": {"content": [{"type": "resource", "resource": {"uri": f"file://{path}", "blob": b"\x89PNG\r\n"}}]}}]}
+                return {"stream": [{"result": {"content": [{"type": "resource", "resource": {"uri": f"file://{path}", "blob": b"\x89PNG\r\n"}}]}}]}  # noqa: E501
             if path.endswith("missing.txt"):
                 return {"stream": [{"result": {"isError": True, "content": [{"type": "text", "text": "No such file"}]}}]}
-            return {"stream": [{"result": {"content": [{"type": "resource", "resource": {"uri": f"file://{path}", "text": "a,b\n1,2\n"}}]}}]}
+            return {"stream": [{"result": {"content": [{"type": "resource", "resource": {"uri": f"file://{path}", "text": "a,b\n1,2\n"}}]}}]}  # noqa: E501
         raise AssertionError(name)
 
     def stop_code_interpreter_session(self, **kw):
@@ -74,7 +74,7 @@ def test_upload_uses_python_shim_with_absolute_paths():
     c, s = make()
     out = s.upload_files([("/tmp/aiq/j/x.txt", b"data")])
     assert out[0].error is None and c.calls[0]["name"] == "executeCommand"
-    assert base64.b64encode(b"data").decode() in c.calls[0]["arguments"]["command"] and "/tmp/aiq/j/x.txt" in c.calls[0]["arguments"]["command"]
+    assert base64.b64encode(b"data").decode() in c.calls[0]["arguments"]["command"] and "/tmp/aiq/j/x.txt" in c.calls[0]["arguments"]["command"]  # noqa: E501
 
 
 def test_download_blob_text_and_missing():

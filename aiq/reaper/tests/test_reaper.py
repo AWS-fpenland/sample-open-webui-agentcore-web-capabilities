@@ -20,10 +20,10 @@ def reaper():
         ddb = boto3.client("dynamodb", region_name="us-east-1")
         ddb.create_table(TableName="jobs", BillingMode="PAY_PER_REQUEST",
                          KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
-                         AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}])
+                         AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}])  # noqa: E501
         ddb.create_table(TableName="events", BillingMode="PAY_PER_REQUEST",
                          KeySchema=[{"AttributeName": "job_id", "KeyType": "HASH"}, {"AttributeName": "seq", "KeyType": "RANGE"}],
-                         AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}, {"AttributeName": "seq", "AttributeType": "N"}])
+                         AttributeDefinitions=[{"AttributeName": "job_id", "AttributeType": "S"}, {"AttributeName": "seq", "AttributeType": "N"}])  # noqa: E501
         sys.path.insert(0, os.path.join(HERE, ".."))
         if "index" in sys.modules:
             del sys.modules["index"]

@@ -42,6 +42,8 @@ def main() -> int:
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--group-name", required=True, help="Open WebUI group that may read the models (from Cognito group sync)")
     ap.add_argument("--disable", action="store_true", help="deactivate the function instead of installing")
+    ap.add_argument("--workbench-url", default="", help="Research Workbench base URL (deep links on package cards)")
+    ap.add_argument("--actions", default="", help="path to aiq_actions.py; installs/updates the action function and binds it to the 4 models")  # noqa: E501
     a = ap.parse_args()
     token = os.environ.get("OWUI_TOKEN")
     if not token:
@@ -68,7 +70,7 @@ def main() -> int:
     content = open(a.pipe, encoding="utf-8").read()
     version = re.search(r"^version:\s*(\S+)", content, re.M)
     body = {"id": a.function_id, "name": "AI-Q Research on AgentCore", "content": content,
-            "meta": {"description": f"NVIDIA AI-Q research agents on Amazon Bedrock AgentCore (run {a.run_id}, pipe {version.group(1) if version else '?'})",
+            "meta": {"description": f"NVIDIA AI-Q research agents on Amazon Bedrock AgentCore (run {a.run_id}, pipe {version.group(1) if version else '?'})",  # noqa: E501
                      "manifest": {}}}
     if existing.status_code == 200:
         r = c.post(f"/api/v1/functions/id/{a.function_id}/update", json=body)
@@ -80,7 +82,7 @@ def main() -> int:
         print(r.text[:500], file=sys.stderr)
         return 4
     r = c.post(f"/api/v1/functions/id/{a.function_id}/valves/update",
-               json={"RUNTIME_ARN": a.runtime_arn, "REGION": a.region, "RUN_ID": a.run_id})
+               json={"RUNTIME_ARN": a.runtime_arn, "REGION": a.region, "RUN_ID": a.run_id, "WORKBENCH_URL": a.workbench_url})
     print("valves:", r.status_code, {k: v for k, v in (r.json() if r.status_code == 200 else {}).items() if k != "RUNTIME_ARN"})
     fn = c.get(f"/api/v1/functions/id/{a.function_id}").json()
     if not fn.get("is_active"):
@@ -100,6 +102,39 @@ def main() -> int:
         mid = f"{a.function_id}.{mode}"
         r = c.post("/api/v1/models/model/access/update", json={"id": mid, "name": MODEL_NAMES[mode], "access_grants": grants})
         print(f"access {mid}: {r.status_code}", (r.text[:120] if r.status_code >= 300 else "ok"))
+    # ---- action function: install + bind to the four AI-Q model rows (meta.actionIds; A Q11-03) ----
+    if a.actions:
+        acontent = open(a.actions, encoding="utf-8").read()
+        aid = "aiq_actions"
+        abody = {"id": aid, "name": "AI-Q package actions", "content": acontent,
+                 "meta": {"description": f"Export / Re-run / Compare / Open for AI-Q research packages (run {a.run_id})", "manifest": {}}}  # noqa: E501
+        ex = c.get(f"/api/v1/functions/id/{aid}")
+        r = c.post(f"/api/v1/functions/id/{aid}/update" if ex.status_code == 200 else "/api/v1/functions/create", json=abody)
+        print("action function:", r.status_code, (r.text[:200] if r.status_code >= 300 else "ok"))
+        r = c.post(f"/api/v1/functions/id/{aid}/valves/update", json={"RUNTIME_ARN": a.runtime_arn, "REGION": a.region, "WORKBENCH_URL": a.workbench_url})  # noqa: E501
+        print("action valves:", r.status_code)
+        fn = c.get(f"/api/v1/functions/id/{aid}").json()
+        if not fn.get("is_active"):
+            print("action activated:", c.post(f"/api/v1/functions/id/{aid}/toggle").status_code)
+        for mode in MODES:
+            mid = f"{a.function_id}.{mode}"
+            row = c.get("/api/v1/models/model", params={"id": mid})
+            if row.status_code == 200 and row.json():
+                model = row.json()
+                meta = dict(model.get("meta") or {})
+                # Open WebUI expands an Action function's sub-actions itself (`Action.actions` → "<function id>.<sub id>");
+                # the row must carry the *function* id — sub-action ids are filtered out (verified 2026-09-18, `actions: []`).
+                stale = {f"{aid}.{x}" for x in ("export", "rerun", "compare", "open")}
+                meta["actionIds"] = sorted((set(meta.get("actionIds") or []) - stale) | {aid})
+                form = {"id": mid, "base_model_id": model.get("base_model_id"), "name": model.get("name") or MODEL_NAMES[mode], "meta": meta,  # noqa: E501
+                        "params": model.get("params") or {}, "access_grants": model.get("access_grants") or grants, "is_active": True}  # noqa: E501
+                r = c.post("/api/v1/models/model/update", params={"id": mid}, json=form)
+            else:
+                form = {"id": mid, "base_model_id": None, "name": MODEL_NAMES[mode],
+                        "meta": {"actionIds": [aid]}, "params": {},
+                        "access_grants": grants, "is_active": True}
+                r = c.post("/api/v1/models/create", json=form)
+            print(f"bind actions → {mid}: {r.status_code}", (r.text[:160] if r.status_code >= 300 else "ok"))
     print(json.dumps({"function_id": a.function_id, "group_id": gid, "models": [f"{a.function_id}.{m}" for m in MODES]}))
     return 0
 

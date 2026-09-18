@@ -77,6 +77,20 @@ class Op(str, Enum):
     COLLECTIONS = "collections"  # list the caller's collections
     DELETE_COLLECTION = "delete_collection"
     HEALTH = "health"
+    # phase 3 — Research Packages, exports, Model Lab, evaluation (11-architecture.md §10)
+    PACKAGES_LIST = "packages.list"
+    PACKAGES_GET = "packages.get"
+    PACKAGES_UPDATE = "packages.update"
+    PACKAGES_DELETE = "packages.delete"
+    PACKAGES_COMPARE = "packages.compare"
+    PACKAGES_RERUN = "packages.rerun"
+    EXPORT = "export"
+    ARTIFACT_URL = "artifact.url"
+    MODELS = "models"
+    MODELS_PREFS = "models.prefs"
+    MODELS_VALIDATE = "models.validate"
+    EVAL = "eval"
+    EVAL_LIST = "eval.list"
 
 
 class ChatMessage(BaseModel):
@@ -102,6 +116,20 @@ class DocumentRef(BaseModel):
         return re.sub(r"[^A-Za-z0-9._ -]", "_", v)[:255]
 
 
+Lane = Literal["converse", "mantle_chat", "mantle_messages"]
+ROLES: tuple[str, ...] = ("router", "clarifier", "shallow", "planner", "researcher", "writer")
+EXPORT_FORMATS: tuple[str, ...] = ("md", "html", "pdf", "docx", "pptx", "json", "csv", "bibtex", "ris", "csl", "zip")
+
+
+class ModelChoice(BaseModel):
+    """One model for one AI-Q role, on one lane. Validated against the signed Capability Matrix before use."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str = Field(min_length=3, max_length=128, pattern=r"^[a-z0-9][A-Za-z0-9._:\-]*$")
+    lane: Lane = "converse"
+
+
 class InvokeRequest(BaseModel):
     """The single payload shape accepted at ``POST /invocations``."""
 
@@ -118,10 +146,11 @@ class InvokeRequest(BaseModel):
     revision: str | None = Field(default=None, max_length=8_000)
     collection: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
     data_sources: list[str] | None = Field(
-        default=None, max_length=8,
-        description="Explicit AI-Q data-source ids (web_search, documents, news, ...); None = default")
-    active_report_job_id: str | None = Field(default=None, pattern=r"^job_[a-f0-9]{32}$",
-                                             description="Completed job whose report this turn asks about or edits")
+        default=None, max_length=8, description="Explicit AI-Q data-source ids (web_search, documents, news, ...); None = default"
+    )
+    active_report_job_id: str | None = Field(
+        default=None, pattern=r"^job_[a-f0-9]{32}$", description="Completed job whose report this turn asks about or edits"
+    )
     documents: list[DocumentRef] = Field(default_factory=list, max_length=20)
     client_request_id: str | None = Field(
         default=None,
@@ -129,6 +158,50 @@ class InvokeRequest(BaseModel):
         description="Idempotency key chosen by the pipe (e.g. OWUI message id). Duplicate SUBMITs return the same job.",
     )
     conversation_id: str | None = Field(default=None, max_length=128, description="OWUI chat id, for audit only")
+    # ---- phase 3 fields (all optional; each op validates the ones it needs) ----
+    models: dict[str, ModelChoice] | None = Field(default=None, description="Per-role model overrides for this request")
+    parent_job_id: str | None = Field(default=None, pattern=r"^job_[a-f0-9]{32}$")
+    relation: Literal["rerun", "followup", "eval", "clarified", "edit", "ask"] | None = None
+    other_job_id: str | None = Field(default=None, pattern=r"^job_[a-f0-9]{32}$")
+    format: str | None = Field(default=None, pattern=r"^[a-z]{2,8}$")
+    theme: Literal["dark", "light"] | None = None
+    artifact_id: str | None = Field(default=None, pattern=r"^art_[a-f0-9]{32}$")
+    tags: list[str] | None = Field(default=None, max_length=32)
+    pinned: bool | None = None
+    title: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=4000)
+    limit: int | None = Field(default=None, ge=1, le=200)
+    cursor: str | None = Field(default=None, max_length=512)
+    status: str | None = Field(default=None, max_length=32)
+    tag: str | None = Field(default=None, max_length=48)
+    q: str | None = Field(default=None, max_length=200)
+    role: str | None = Field(default=None, max_length=32)
+    question_ids: list[str] | None = Field(default=None, max_length=50)
+    judge: ModelChoice | None = None
+    eval_id: str | None = Field(default=None, pattern=r"^eval_[a-f0-9]{16}$")
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        out = []
+        for t in v:
+            t = t.strip().lower()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}", t):
+                raise ValueError(f"invalid tag {t!r}")
+            out.append(t)
+        return list(dict.fromkeys(out))
+
+    @field_validator("models")
+    @classmethod
+    def _roles(cls, v: dict[str, ModelChoice] | None) -> dict[str, ModelChoice] | None:
+        if v is None:
+            return None
+        bad = [r for r in v if r not in ROLES]
+        if bad:
+            raise ValueError(f"unknown model role(s): {', '.join(bad)}")
+        return v
 
     @field_validator("messages")
     @classmethod
@@ -205,6 +278,14 @@ class JobRecord(BaseModel):
     error: str | None = None
     usage: dict[str, int] = Field(default_factory=dict)  # input_tokens, output_tokens, searches, pages, retrievals
     expires_at: int | None = None  # DynamoDB TTL epoch seconds
+    # phase 3
+    models: dict[str, Any] | None = None  # resolved roles {role: {model_id, lane, human_name, source}}
+    parent_job_id: str | None = None
+    relation: str | None = None  # root | rerun | followup | eval | clarified
+    package_sk: str | None = None  # PKG#<created_at>#<job_id> projection key
+    title: str | None = None
+    cost_usd: float | None = None
+    eval_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +314,7 @@ class EventType(str, Enum):
     CANCELLED = "cancelled"
     COMPLETED = "completed"
     HEARTBEAT = "heartbeat"
+    PACKAGE = "package"  # package summary at terminal state (or after backfill)
 
 
 class Event(BaseModel):
@@ -248,10 +330,11 @@ class Event(BaseModel):
     idempotency_key: str | None = None  # dedupes side-effecting events on retry
 
     def is_terminal(self) -> bool:
-        return self.type in {EventType.COMPLETED, EventType.FAILED_ALIAS, EventType.CANCELLED} if hasattr(
-            EventType, "FAILED_ALIAS"
-        ) else self.type in {EventType.COMPLETED, EventType.CANCELLED} or (
-            self.type == EventType.ERROR and bool(self.data.get("terminal"))
+        return (
+            self.type in {EventType.COMPLETED, EventType.FAILED_ALIAS, EventType.CANCELLED}
+            if hasattr(EventType, "FAILED_ALIAS")
+            else self.type in {EventType.COMPLETED, EventType.CANCELLED}
+            or (self.type == EventType.ERROR and bool(self.data.get("terminal")))
         )
 
 

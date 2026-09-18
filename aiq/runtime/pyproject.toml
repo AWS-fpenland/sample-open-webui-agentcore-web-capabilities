@@ -17,6 +17,9 @@ dependencies = [
   "httpx>=0.27,<1",
   "pyyaml>=6,<7",
   "playwright>=1.50,<2",
+  "aws-bedrock-token-generator>=1.0,<2",
+  "langchain-openai>=0.3,<2",
+  "langchain-anthropic>=0.3,<2",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +41,7 @@ agentcore_code_interpreter = "aiq_agentcore.sandbox_agentcore:AgentCoreCodeInter
 where = ["src"]
 
 [tool.setuptools.package-data]
-aiq_agentcore = ["py.typed"]
+aiq_agentcore = ["py.typed", "data/*.json", "exports/*.css", "exports/templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

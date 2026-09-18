@@ -317,10 +317,10 @@ def test_export_md_and_json_when_renderers_present(principal):
 def test_artifact_url_is_tenant_scoped(principal, other_principal):
     a = _run_shallow(principal, "question with no artifacts", "art-1")[0]["job_id"]
     # another tenant never learns whether the job exists
-    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_x"}, other_principal))
+    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_" + "0" * 32}, other_principal))
     assert r[0]["type"] == "error" and r[0]["data"]["error"]["code"] == "not_found"
     # the owner with a forged artifact id gets not_found too (no presigned URL is ever minted for unknown keys)
-    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_doesnotexist"}, principal))
+    r = asyncio.run(collect({"op": "artifact.url", "job_id": a, "artifact_id": "art_" + "f" * 32}, principal))
     assert r[0]["type"] == "error" and r[0]["data"]["error"]["code"] == "not_found"
     r = asyncio.run(collect({"op": "artifact.url", "job_id": a}, principal))
     assert r[0]["data"]["error"]["code"] == "invalid_request"

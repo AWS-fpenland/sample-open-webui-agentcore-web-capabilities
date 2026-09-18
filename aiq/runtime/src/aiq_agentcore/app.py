@@ -110,16 +110,21 @@ def _principal(context) -> Principal:
 # --------------------------------------------------------------------------- core run loop --
 
 
+def _refresh_index_status(st: JobStore, tenant: str, job_id: str, status: JobStatus) -> None:
+    """Keep the PKG# library row's status in step with the job (queued → running → terminal); never fails the run."""
+    try:
+        st.update_package_index(tenant, job_id, status=status.value)
+    except Exception:  # noqa: BLE001 — rows created with index=False, or a transient DynamoDB error
+        log.debug("package index status refresh skipped", exc_info=True)
+
+
 async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) -> AsyncIterator[Event]:
     """Run the engine for a job, appending every event to the durable journal and yielding it."""
     st = store()
     tenant = principal.tenant_key
     cancelled = _cancel_flags.setdefault(job_id, asyncio.Event())
     st.update_job(tenant, job_id, status=JobStatus.RUNNING.value, heartbeat_at=now_iso())
-    try:  # the library row should say "running", not "queued", while the job is in flight
-        st.update_package_index(tenant, job_id, status=JobStatus.RUNNING.value)
-    except Exception:  # noqa: BLE001
-        log.debug("package index status refresh skipped", exc_info=True)
+    _refresh_index_status(st, tenant, job_id, JobStatus.RUNNING)  # the library row says "running", not "queued", in flight
     started = time.monotonic()
     last_cancel_check = 0.0
     terminal_seen = False
@@ -250,6 +255,7 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
             stored = await asyncio.get_running_loop().run_in_executor(None, st.append_event, tenant, job_id, ev.type, ev.data)
             if final_status is not None:
                 st.update_job(tenant, job_id, status=final_status.value, **({"error": final_error} if final_error else {}))
+                _refresh_index_status(st, tenant, job_id, final_status)
             yield stored
             if terminal_seen:
                 break
@@ -275,6 +281,7 @@ async def _journal_run(principal: Principal, job_id: str, req: EngineRequest) ->
             finalized = True
             stored = st.append_event(tenant, job_id, terminal_type, terminal_data)
             st.update_job(tenant, job_id, status=end_status.value)
+            _refresh_index_status(st, tenant, job_id, end_status)
             yield stored
     except asyncio.CancelledError:
         outcome = "cancelled"

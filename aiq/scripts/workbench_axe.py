@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
+# ruff: noqa: E501  (browser harness: long selectors and JS snippets)
 """Accessibility + keyboard + reload checks of the Research Workbench (AgentCore Browser, Playwright over signed CDP).
 
   python aiq/scripts/workbench_axe.py --url https://aiq.example --username user@x --password-env PW --axe /path/axe.min.js \

@@ -150,7 +150,10 @@ class Action:
             msgs = body.get("messages") or []
             current = next((m for m in reversed(msgs) if m.get("id") == body.get("id")), msgs[-1] if msgs else {})
             content = (current.get("content") or "").rstrip() + "".join("\n\n" + t for t in appended)
-            return {"messages": [{"id": body.get("id") or current.get("id"), "role": "assistant", "content": content}]}
+            # Open WebUI ≥ 0.11 renders `output` items (structured output) when present and only falls back to `content`,
+            # so a completed message repaints only if `output` changes too: rebuild it as one text item carrying the new text.
+            output = [{"type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]  # noqa: E501
+            return {"messages": [{"id": body.get("id") or current.get("id"), "role": "assistant", "content": content, "output": output}]}  # noqa: E501
 
         async def status(text: str, done: bool = True):
             if __event_emitter__:

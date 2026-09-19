@@ -130,7 +130,7 @@ class Action:
         __request__=None,
     ):
         if (body.get("event") or {}).get("id") == "regenerate-response":
-            return visible()
+            return None
         __user__ = __user__ or {}
         sub = (__id__ or "").split(".")[-1] or "open"
         pkg = self._package_id(body)
@@ -313,10 +313,10 @@ class Action:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as http:
             async with http.get(url) as resp:
                 if resp.status != 200:
-                    return visible()
+                    return None
                 data = await resp.read()
         if len(data) > 25 * 1024 * 1024:
-            return visible()
+            return None
         fid = str(uuid.uuid4())
         _, path = Storage.upload_file(io.BytesIO(data), f"{fid}_{name}", {"OpenWebUI-User-Id": __user__.get("id", "")})
         f = Files.insert_new_file(

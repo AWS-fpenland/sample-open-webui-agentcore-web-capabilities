@@ -185,13 +185,48 @@ def build_client(model_id: str, lane: str, base: Any, region: str) -> Any:
         )
     if lane == "mantle_messages":
         from langchain_anthropic import ChatAnthropic
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        class _MantleAnthropic(ChatAnthropic):
+            """ChatAnthropic that never ends a conversation with an assistant turn.
+
+            Upstream AI-Q (deepagents middleware, continuation steps) sometimes sends a message list whose last item is an
+            AIMessage, which the Anthropic API treats as *prefill*. Claude Sonnet 5 on Mantle rejects that: HTTP 400 "This model
+            does not support assistant message prefill. The conversation must end with a user message." (observed live
+            2026-09-19 01:18Z). Appending an explicit user turn keeps the semantics — continue the previous answer — on every model."""
+
+            @staticmethod
+            def _no_prefill(messages):  # type: ignore[no-untyped-def]
+                if messages and isinstance(messages[-1], AIMessage):
+                    log.warning(json.dumps({"event": "mantle.prefill_rewritten", "model_id": messages_model_id}))
+                    return [
+                        *messages,
+                        HumanMessage(
+                            content="Continue exactly from where your previous message stopped. Do not repeat earlier text."
+                        ),
+                    ]  # noqa: E501
+                return messages
+
+            def _generate(self, messages, *args, **kwargs):  # type: ignore[no-untyped-def]
+                return super()._generate(self._no_prefill(messages), *args, **kwargs)
+
+            async def _agenerate(self, messages, *args, **kwargs):  # type: ignore[no-untyped-def]
+                return await super()._agenerate(self._no_prefill(messages), *args, **kwargs)
+
+            def _stream(self, messages, *args, **kwargs):  # type: ignore[no-untyped-def]
+                return super()._stream(self._no_prefill(messages), *args, **kwargs)
+
+            def _astream(self, messages, *args, **kwargs):  # type: ignore[no-untyped-def]
+                return super()._astream(self._no_prefill(messages), *args, **kwargs)
+
+        messages_model_id = model_id
 
         # Claude Sonnet 5 on Mantle rejects `temperature` ("`temperature` is deprecated for this model", HTTP 400 —
         # observed live 2026-09-18 when the writer copied the config's 0.2). Sampling parameters do not transfer across
         # families; the Anthropic lane runs with the model defaults (the Model Lab records this per model: `temperature` probe).
         settings.pop("temperature", None)
         settings.setdefault("max_tokens", 8192)
-        return ChatAnthropic(
+        return _MantleAnthropic(
             model=model_id,
             base_url=f"https://bedrock-mantle.{region}.api.aws/anthropic",
             api_key=mantle_token(region),

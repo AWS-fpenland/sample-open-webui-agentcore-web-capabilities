@@ -48,3 +48,21 @@ def test_refresh_failure_never_raises(monkeypatch):
     h = lo._ModelErrorJournal("writer", "m", "mantle_messages")
     h.client, h.region = object(), "us-east-1"
     h.on_chat_model_start({}, [[]])  # logs a warning, does not raise
+
+
+def test_anthropic_lane_never_ends_with_an_assistant_turn(monkeypatch):
+    pytest.importorskip("langchain_anthropic")
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(lo, "mantle_token", lambda region, max_age_s=120.0: "tok")
+
+    class Base:
+        temperature = 0.2
+        max_tokens = 4096
+
+    client = lo.build_client("anthropic.claude-sonnet-5", "mantle_messages", Base(), "us-east-1")
+    assert type(client).__name__ == "_MantleAnthropic" and client._client.api_key == "tok"
+    src = [HumanMessage("write the report"), AIMessage("partial report ...")]
+    fixed = client._no_prefill(src)
+    assert isinstance(fixed[-1], HumanMessage) and len(fixed) == 3 and fixed[:2] == src
+    assert client._no_prefill([HumanMessage("hi")]) == [HumanMessage("hi")]

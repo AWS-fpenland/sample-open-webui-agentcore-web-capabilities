@@ -42,10 +42,18 @@ def main() -> int:
                 page = context.new_page()
                 page.goto(a.url.rstrip("/") + route, wait_until="domcontentloaded", timeout=60_000)
                 page.wait_for_timeout(700)
-                early = page.evaluate("() => ({url: location.href, text: (document.body ? document.body.innerText : '').slice(0, 400)})")
+                try:
+                    early = page.evaluate("() => ({url: location.href, text: (document.body ? document.body.innerText : '').slice(0, 400)})")
+                except Exception:  # noqa: BLE001 — the redirect to Cognito already tore the page down: nothing rendered
+                    early = {"url": page.url, "text": ""}
                 page.wait_for_timeout(6000)
                 final_url = page.url
-                text = page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 400)") if "amazoncognito.com" not in final_url else ""
+                text = ""
+                if "amazoncognito.com" not in final_url:
+                    try:
+                        text = page.evaluate("() => (document.body ? document.body.innerText : '').slice(0, 400)")
+                    except Exception:  # noqa: BLE001
+                        text = ""
                 shot = os.path.join(a.out_dir, f"{i:02d}-{re.sub(r'[^a-z0-9]+', '-', route.lower()).strip('-') or 'root'}.png")
                 page.screenshot(path=shot)
                 rec = {

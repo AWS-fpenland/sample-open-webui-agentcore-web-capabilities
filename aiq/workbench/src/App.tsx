@@ -1,11 +1,12 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
-// Routes + sign-in gate. Mock mode bypasses the gate (a "mock mode" chip is shown in the shell).
+// Routes + sign-in gate. Every route requires a Cognito session; an unauthenticated visitor is redirected to Managed Login at
+// once — nothing renders without a session (security mandate, 2026-09-19).
 import { Route, Routes, useLocation } from 'react-router-dom';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './components/Toast';
 import { ModelsProvider } from './lib/models';
-import { AuthCallbackPage, LoadingPage, NotFoundPage, SignInPage, SignOutPage } from './pages/AuthPages';
+import { AuthCallbackPage, LoadingPage, NotFoundPage, SignInRedirectPage, SignOutPage } from './pages/AuthPages';
 import ComparePage from './pages/ComparePage';
 import ExportsPage from './pages/ExportsPage';
 import LibraryPage from './pages/LibraryPage';
@@ -19,10 +20,8 @@ export default function App() {
 
   if (loc.pathname === '/auth/callback') return <AuthCallbackPage />;
   if (loc.pathname === '/signout') return <SignOutPage />;
-  if (!session.mock) {
-    if (session.loading) return <LoadingPage text="Checking your session…" />;
-    if (!session.authenticated) return <SignInPage />;
-  }
+  if (session.loading) return <LoadingPage text="Checking your session…" />;
+  if (!session.authenticated) return <SignInRedirectPage />;
 
   return (
     <ToastProvider>

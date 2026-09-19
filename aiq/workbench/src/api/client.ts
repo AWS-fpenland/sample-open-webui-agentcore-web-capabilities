@@ -45,7 +45,6 @@ export function toApiError(e: unknown): ApiError {
 }
 
 export interface WorkbenchApi {
-  readonly mock: boolean;
   packagesList(params: ListParams): Promise<PackagesPage>;
   packagesGet(jobId: string): Promise<PackageResponse>;
   packagesUpdate(jobId: string, patch: PackagePatch): Promise<PackageResponse>;
@@ -141,7 +140,6 @@ export function createRealApi(cfg: WorkbenchConfig, getToken: () => string | und
   }
 
   return {
-    mock: false,
     async packagesList(params) {
       return expect<PackagesPage>(await invoke({ op: 'packages.list', ...compact(params as Record<string, unknown>) }), 'packages');
     },

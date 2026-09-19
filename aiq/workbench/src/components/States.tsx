@@ -56,7 +56,7 @@ export function ErrorBanner({ error, onRetry, title = 'Something went wrong' }: 
         ) : null}
       </div>
       <div className="actions">
-        {unauth && !session.mock ? (
+        {unauth ? (
           <button type="button" className="btn btn-sm" onClick={() => session.signIn()}>
             Sign in again
           </button>

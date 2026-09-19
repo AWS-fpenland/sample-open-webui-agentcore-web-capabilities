@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT-0
 import { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { MOCK_FLAG_KEY } from '../config';
 import { POST_LOGIN_KEY, useSession } from '../session';
 
 function Centered({ title, children }: { title: string; children: React.ReactNode }) {
@@ -20,29 +19,31 @@ function Centered({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-export function SignInPage() {
+/** No landing page: an unauthenticated visitor is sent to Cognito Managed Login immediately, and comes back to the route they asked for. */
+export function SignInRedirectPage() {
   const session = useSession();
   const loc = useLocation();
-  return (
-    <Centered title="Research Workbench">
-      <p className="muted small">Every research job becomes a durable package: report, sources, artifacts, run metadata, lineage. Sign in with the same account you use in Open WebUI — one Cognito session covers both.</p>
-      {session.error ? (
+  const failed = Boolean(session.error);
+  useEffect(() => {
+    if (!failed) session.signIn(loc.pathname + loc.search);
+  }, [failed, session, loc.pathname, loc.search]);
+  if (failed) {
+    return (
+      <Centered title="Sign-in required">
         <div className="banner" role="alert" style={{ marginBottom: 12 }}>
           <span aria-hidden="true">⚠</span>
           <div>
-            <b>Sign-in failed</b>
+            <b>Sign-in did not complete</b>
             {session.error}
           </div>
         </div>
-      ) : null}
-      <button type="button" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => session.signIn(loc.pathname + loc.search)}>
-        Sign in
-      </button>
-      <div className="faint" style={{ marginTop: 14 }}>
-        PKCE code flow · tokens stay in this tab's session storage · <Link to="/?mock=1">preview with fixtures</Link>
-      </div>
-    </Centered>
-  );
+        <button type="button" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => session.signIn(loc.pathname + loc.search)}>
+          Sign in
+        </button>
+      </Centered>
+    );
+  }
+  return <LoadingPage text="Redirecting to sign-in…" />;
 }
 
 export function LoadingPage({ text }: { text: string }) {
@@ -60,12 +61,12 @@ export function AuthCallbackPage() {
   const session = useSession();
   const navigate = useNavigate();
   useEffect(() => {
-    if (session.mock || session.authenticated) {
+    if (session.authenticated) {
       const target = sessionStorage.getItem(POST_LOGIN_KEY) || '/';
       sessionStorage.removeItem(POST_LOGIN_KEY);
       navigate(target.startsWith('/auth') ? '/' : target, { replace: true });
     }
-  }, [session.mock, session.authenticated, navigate]);
+  }, [session.authenticated, navigate]);
   if (session.error) {
     return (
       <Centered title="Sign-in did not complete">
@@ -81,15 +82,9 @@ export function AuthCallbackPage() {
 
 export function SignOutPage() {
   const session = useSession();
-  const navigate = useNavigate();
   useEffect(() => {
-    if (session.mock) {
-      sessionStorage.removeItem(MOCK_FLAG_KEY);
-      navigate('/', { replace: true });
-      return;
-    }
     session.signOut();
-  }, [session, navigate]);
+  }, [session]);
   return <LoadingPage text="Signing out…" />;
 }
 

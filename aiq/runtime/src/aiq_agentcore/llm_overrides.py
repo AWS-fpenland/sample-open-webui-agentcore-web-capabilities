@@ -193,7 +193,7 @@ def build_client(model_id: str, lane: str, base: Any, region: str) -> Any:
             Upstream AI-Q (deepagents middleware, continuation steps) sometimes sends a message list whose last item is an
             AIMessage, which the Anthropic API treats as *prefill*. Claude Sonnet 5 on Mantle rejects that: HTTP 400 "This model
             does not support assistant message prefill. The conversation must end with a user message." (observed live
-            2026-09-19 01:18Z). Appending an explicit user turn keeps the semantics — continue the previous answer — on every model."""
+            2026-09-19 01:18Z). Appending an explicit user turn keeps the semantics — continue the previous answer — on every model."""  # noqa: E501
 
             @staticmethod
             def _no_prefill(messages):  # type: ignore[no-untyped-def]

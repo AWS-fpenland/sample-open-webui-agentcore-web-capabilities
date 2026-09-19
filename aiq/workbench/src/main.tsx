@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
-// Boot: load /config.json → mock adapter (fixtures, no auth) or Cognito PKCE (react-oidc-context) + real runtime API.
+// Boot: load /config.json → Cognito PKCE (react-oidc-context) + real runtime API. No unauthenticated mode exists.
 import './styles/tokens.css';
 import './styles/app.css';
 import { StrictMode } from 'react';
@@ -9,47 +9,15 @@ import { BrowserRouter } from 'react-router-dom';
 import { WebStorageStateStore } from 'oidc-client-ts';
 import { AuthProvider } from 'react-oidc-context';
 import App from './App';
-import { ApiContext } from './api';
 import { AuthBridge } from './auth/AuthBridge';
-import { ConfigContext, loadConfig, MOCK_FLAG_KEY, resolveMockMode } from './config';
-import { SessionContext, type Session } from './session';
+import { ConfigContext, loadConfig } from './config';
 
 const root = createRoot(document.getElementById('root')!);
 
 loadConfig()
-  .then(async (cfg) => {
-    if (resolveMockMode(cfg, window.location.search)) {
-      const { createMockApi } = await import('./mock/adapter');
-      const api = createMockApi();
-      const session: Session = {
-        mock: true,
-        authenticated: true,
-        loading: false,
-        error: null,
-        email: 'researcher-a@example.edu',
-        signIn: () => undefined,
-        signOut: () => {
-          sessionStorage.removeItem(MOCK_FLAG_KEY);
-          window.location.assign('/');
-        },
-      };
-      root.render(
-        <StrictMode>
-          <ConfigContext.Provider value={cfg}>
-            <ApiContext.Provider value={api}>
-              <SessionContext.Provider value={session}>
-                <BrowserRouter>
-                  <App />
-                </BrowserRouter>
-              </SessionContext.Provider>
-            </ApiContext.Provider>
-          </ConfigContext.Provider>
-        </StrictMode>,
-      );
-      return;
-    }
+  .then((cfg) => {
     for (const k of ['userPoolId', 'clientId', 'cognitoDomain', 'runtimeArn'] as const) {
-      if (!cfg[k] || String(cfg[k]).includes('PLACEHOLDER')) throw new Error(`config.json "${k}" is not set for a real deployment (or set "mock": true).`);
+      if (!cfg[k] || String(cfg[k]).includes('PLACEHOLDER')) throw new Error(`config.json "${k}" is not set.`);
     }
     // Cognito user pools are OIDC-discoverable at the issuer URL; Managed Login renders the sign-in UX.
     // PKCE code flow, public client (no secret); tokens in sessionStorage (cleared with the tab); silent renew via refresh token.
@@ -85,10 +53,7 @@ loadConfig()
       <div className="center">
         <div className="glass card">
           <h1>Workbench could not start</h1>
-          <p className="muted">Failed to load deployment configuration: {err.message}</p>
-          <p className="faint">
-            The deploy step writes <code>/config.json</code> next to the bundle. For a local preview, <code>public/config.json</code> ships with <code>"mock": true</code>.
-          </p>
+          <p className="muted">Deployment configuration could not be loaded: {err.message}</p>
         </div>
       </div>,
     );

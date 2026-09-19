@@ -36,12 +36,17 @@ _PATCHED = False
 _TOKEN_CACHE: dict[str, tuple[str, float]] = {}
 
 
-def mantle_token(region: str) -> str:
-    """Short-term Bedrock API key for the Mantle lanes (cached ~50 min; keys are valid up to 12 h)."""
+def mantle_token(region: str, max_age_s: float = 120.0) -> str:
+    """Short-term Bedrock API key for the Mantle lanes.
+
+    The generator presigns a token for up to 12 h, but the token is only valid while the *temporary credentials* it embeds
+    are — and an AgentCore Runtime's role credentials rotate. A key minted at job start and held by the client for a long
+    writer stage therefore dies with HTTP 401 "security token expired" (observed live 2026-09-18 on a 35-minute deep run).
+    Signing is local and cheap, so the cache is short and every model call re-reads the key (see `_ModelErrorJournal`)."""
     import time
 
     tok, at = _TOKEN_CACHE.get(region, ("", 0.0))
-    if tok and time.monotonic() - at < 3000:
+    if tok and time.monotonic() - at < max_age_s:
         return tok
     from aws_bedrock_token_generator import provide_token
 
@@ -100,6 +105,35 @@ class _ModelErrorJournal:
     async def aon_llm_error(self, error: BaseException, **kwargs: Any) -> None:
         self._record(error)
 
+    # --- Mantle lanes: re-read the short-term API key before every call (credentials behind it rotate) ---
+    client: Any = None
+    region: str = ""
+
+    def _refresh_key(self) -> None:
+        if self.client is None or self.lane not in ("mantle_chat", "mantle_messages"):
+            return
+        try:
+            changed = refresh_mantle_key(self.client, self.lane, self.region)
+        except Exception as e:  # noqa: BLE001 — never fail a model call because a refresh failed; the call surfaces its own error
+            log.warning(json.dumps({"event": "mantle.token.refresh_failed", "lane": self.lane, "error": repr(e)[:200]}))
+            return
+        if changed:
+            log.warning(
+                json.dumps({"event": "mantle.token.refreshed", "role": self.role, "model_id": self.model_id, "lane": self.lane})
+            )
+
+    def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
+        self._refresh_key()
+
+    def on_llm_start(self, *args: Any, **kwargs: Any) -> None:
+        self._refresh_key()
+
+    async def aon_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
+        self._refresh_key()
+
+    async def aon_llm_start(self, *args: Any, **kwargs: Any) -> None:
+        self._refresh_key()
+
     def __getattr__(self, name: str) -> Any:  # every other callback is a no-op
         if name.startswith(("on_", "aon_")):
             return _noop if name.startswith("on_") else _anoop
@@ -112,6 +146,25 @@ def _noop(*args: Any, **kwargs: Any) -> None:
 
 async def _anoop(*args: Any, **kwargs: Any) -> None:
     return None
+
+
+def refresh_mantle_key(client: Any, lane: str, region: str) -> bool:
+    """Point the LangChain client's underlying SDK client(s) at a freshly minted Bedrock API key. Returns True if it changed.
+
+    The Anthropic and OpenAI SDKs read ``api_key`` at request time, so mutating the attribute is enough — no client rebuild,
+    no lost conversation state."""
+    tok = mantle_token(region)
+    targets = []
+    if lane == "mantle_messages":
+        targets = [getattr(client, "_client", None), getattr(client, "_async_client", None)]
+    elif lane == "mantle_chat":
+        targets = [getattr(client, "root_client", None), getattr(client, "root_async_client", None)]
+    changed = False
+    for t in targets:
+        if t is not None and getattr(t, "api_key", None) != tok:
+            t.api_key = tok
+            changed = True
+    return changed
 
 
 def build_client(model_id: str, lane: str, base: Any, region: str) -> Any:
@@ -193,8 +246,10 @@ def apply() -> bool:
         if key not in cache:
             region = os.environ.get("AIQ_REGION") or os.environ.get("AWS_REGION", "us-east-1")
             client = build_client(mid, lane, base, region)
-            try:  # journal provider errors of the selected model (see _ModelErrorJournal)
-                client.callbacks = [*(getattr(client, "callbacks", None) or []), _ModelErrorJournal(ours, mid, lane)]
+            try:  # journal provider errors + refresh the Mantle key before each call (see _ModelErrorJournal)
+                journal = _ModelErrorJournal(ours, mid, lane)
+                journal.client, journal.region = client, region
+                client.callbacks = [*(getattr(client, "callbacks", None) or []), journal]
             except Exception:  # noqa: BLE001
                 pass
             cache[key] = client

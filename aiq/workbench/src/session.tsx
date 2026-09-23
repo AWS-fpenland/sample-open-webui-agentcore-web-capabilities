@@ -1,10 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
-// Identity abstraction so pages never touch react-oidc-context directly (mock mode has no AuthProvider).
+// Identity abstraction so pages never touch react-oidc-context directly.
 import { createContext, useContext } from 'react';
 
 export interface Session {
-  mock: boolean;
   authenticated: boolean;
   loading: boolean;
   error: string | null;

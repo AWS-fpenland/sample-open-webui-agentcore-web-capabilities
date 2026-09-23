@@ -13,7 +13,6 @@ import { useToast } from '../components/Toast';
 import { useConfig } from '../config';
 import { ago, num, pct, shortId, usd, withinDays } from '../lib/format';
 import { owuiHomeUrl, owuiNewResearchUrl } from '../lib/owui';
-import { useSession } from '../session';
 import type { JobStatus, ListParams, Mode, PackageSummary } from '../types';
 import { MODE_LABEL } from '../types';
 import { RerunDialog } from './package/RerunDialog';
@@ -31,7 +30,6 @@ const DATE_WINDOWS = [
 export default function LibraryPage() {
   const api = useApi();
   const cfg = useConfig();
-  const session = useSession();
   const toast = useToast();
   const navigate = useNavigate();
   const [sp, setSp] = useSearchParams();
@@ -273,7 +271,7 @@ export default function LibraryPage() {
       <div className="pager">
         <span>
           Showing {visible.length}
-          {days && visible.length !== items.length ? ` of ${items.length} loaded` : ''} · newest first{session.mock ? ' · fixtures' : ''}
+          {days && visible.length !== items.length ? ` of ${items.length} loaded` : ''} · newest first
         </span>
         {cursor ? (
           <button type="button" className="btn btn-sm" onClick={loadMore} disabled={loadingMore}>

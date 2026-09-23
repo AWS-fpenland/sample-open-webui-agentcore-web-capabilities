@@ -135,9 +135,25 @@ class Action:
         sub = (__id__ or "").split(".")[-1] or "open"
         pkg = self._package_id(body)
 
+        appended: list[str] = []
+
         async def say(text: str):
+            # Live append for clients that render `message` events; the return value below makes it stick regardless
+            # (Open WebUI v0.11 merges the action's returned `messages[*]` into the chat and persists it — verified live).
+            appended.append(text)
             if __event_emitter__:
                 await __event_emitter__({"type": "message", "data": {"content": "\n\n" + text}})
+
+        def visible():
+            if not appended:
+                return visible()
+            msgs = body.get("messages") or []
+            current = next((m for m in reversed(msgs) if m.get("id") == body.get("id")), msgs[-1] if msgs else {})
+            content = (current.get("content") or "").rstrip() + "".join("\n\n" + t for t in appended)
+            # Open WebUI ≥ 0.11 renders `output` items (structured output) when present and only falls back to `content`,
+            # so a completed message repaints only if `output` changes too: rebuild it as one text item carrying the new text.
+            output = [{"type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": content}]}]  # noqa: E501
+            return {"messages": [{"id": body.get("id") or current.get("id"), "role": "assistant", "content": content, "output": output}]}  # noqa: E501
 
         async def status(text: str, done: bool = True):
             if __event_emitter__:
@@ -145,18 +161,22 @@ class Action:
 
         if not pkg:
             await say("_No research package is attached to this message._")
-            return None
+            return visible()
         if sub == "open":
             link = self._wb(f"/p/{pkg}")
             await say(
                 f"**Research package** `{pkg}` — "
                 + (f"[Open in Workbench ↗]({link})" if link else "Workbench URL is not configured.")
             )
-            return None
+            if __event_emitter__:
+                await __event_emitter__(
+                    {"type": "notification", "data": {"type": "success", "content": "Workbench link added below the answer"}}
+                )
+            return visible()
         bearer = await self._bearer(__user__, __request__)
         if not bearer:
             await say("_Your Cognito session is required (sign in with SSO)._")
-            return None
+            return visible()
         if sub == "export":
             chosen = None
             if __event_call__:
@@ -216,7 +236,7 @@ class Action:
                 await __event_emitter__({"type": "files", "data": {"files": files}})
             link = self._wb(f"/exports/{pkg}")
             await say("**Exports**\n" + "\n".join(lines) + (f"\n\n[Export center ↗]({link})" if link else ""))
-            return None
+            return visible()
         if sub == "rerun":
             chosen = None
             if __event_call__:
@@ -249,12 +269,12 @@ class Action:
                 evs = await self._invoke(bearer, payload, 120)
             except Exception as e:  # noqa: BLE001
                 await say(f"_Re-run failed: {e.__class__.__name__}_")
-                return None
+                return visible()
             err = next((e for e in evs if e.get("type") == "error"), None)
             acc = next((e for e in evs if e.get("type") == "job.accepted"), None)
             if err or not acc:
                 await say(f"**Re-run refused:** {((err or {}).get('data') or {}).get('error', {}).get('message', 'no job id')}")
-                return None
+                return visible()
             new_job = acc["job_id"]
             roles = (acc.get("data") or {}).get("models") or {}
             writer = (roles.get("writer") or {}).get("human_name") or (roles.get("writer") or {}).get("model_id") or "default"
@@ -264,19 +284,19 @@ class Action:
                 + (f"[Watch progress in the Workbench ↗]({link})" if link else "Use `/library` to watch progress.")
                 + f"\n\n_aiq-package:{new_job}_"
             )
-            return None
+            return visible()
         if sub == "compare":
             evs = await self._invoke(bearer, {"op": "packages.get", "job_id": pkg}, 60)
             man = next(((e.get("data") or {}).get("manifest") for e in evs if e.get("type") == "package"), None) or {}
             other = (man.get("lineage") or {}).get("parent_package_id")
             if not other:
                 await say("_Nothing to compare with yet — re-run this package first, then Compare._")
-                return None
+                return visible()
             evs = await self._invoke(bearer, {"op": "packages.compare", "job_id": pkg, "other_job_id": other}, 90)
             cmp_ = next(((e.get("data") or {}) for e in evs if e.get("type") == "comparison"), None)
             if not cmp_:
                 await say("_Compare failed._")
-                return None
+                return visible()
             run = cmp_.get("run") or {}
             src = cmp_.get("sources") or {}
             link = self._wb(f"/compare/{pkg}/{other}")
@@ -286,7 +306,7 @@ class Action:
                 f"A-only {len(src.get('only_a', []))}, B-only {len(src.get('only_b', []))}."
                 + (f" [Side by side ↗]({link})" if link else "")
             )
-            return None
+            return visible()
         return None
 
     async def _attach(self, url: str, name: str, content_type: str, __user__: dict) -> str | None:

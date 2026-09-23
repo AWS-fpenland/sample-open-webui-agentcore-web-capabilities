@@ -36,7 +36,6 @@ export interface WorkbenchConfig {
   runtimeArn: string;
   owuiUrl: string;
   workbenchUrl: string;
-  mock?: boolean;
   connectedApps?: boolean;
 }
 

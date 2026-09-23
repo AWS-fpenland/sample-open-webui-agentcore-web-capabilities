@@ -38,8 +38,8 @@ export const EXPORT_FORMATS: { id: ExportFormat; label: string; hint: string; de
 ];
 
 export function openExport(res: ExportResult, toast: ReturnType<typeof useToast>) {
-  if (res.url === '#mock' || !res.url) {
-    toast.push('ok', `Mock export ready: ${res.filename} (${Math.round(res.size / 1024)} KB, sha256 ${res.sha256.slice(0, 8)}…). No file is produced in mock mode.`);
+  if (!res.url) {
+    toast.push('err', `Export ${res.filename} was rendered but no download link came back.`);
     return;
   }
   const w = window.open(res.url, '_blank', 'noopener');

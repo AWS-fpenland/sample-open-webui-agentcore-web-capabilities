@@ -16,7 +16,6 @@ export function AuthBridge({ cfg, children }: { cfg: WorkbenchConfig; children: 
   const api = useMemo(() => createRealApi(cfg, () => tokenRef.current), [cfg]);
   const session = useMemo<Session>(
     () => ({
-      mock: false,
       authenticated: auth.isAuthenticated,
       loading: auth.isLoading,
       error: auth.error?.message ?? null,

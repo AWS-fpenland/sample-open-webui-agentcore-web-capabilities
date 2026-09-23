@@ -1,6 +1,6 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
-// App shell: glass sidebar (Library, Model Lab + contextual entries), user chip, theme/density toggles, mock chip.
+// App shell: glass sidebar (Library, Model Lab + contextual entries), user chip, theme/density toggles.
 import type { ReactNode } from 'react';
 import { NavLink, useLocation, useParams } from 'react-router-dom';
 import { useSession } from '../session';
@@ -79,15 +79,10 @@ export function Shell({ children }: { children: ReactNode }) {
               <span className="ellipsis" style={{ display: 'block', color: 'var(--fg-muted)', fontWeight: 600 }}>
                 {session.email ?? 'researcher'}
               </span>
-              <span style={{ display: 'block' }}>{session.mock ? 'mock identity' : 'Same Cognito session as Open WebUI'}</span>
+              <span style={{ display: 'block' }}>Same Cognito session as Open WebUI</span>
             </span>
           </div>
           <div className="nav-actions">
-            {session.mock ? (
-              <span className="chip chip-warn mock-chip" title="Fixtures instead of the runtime; no sign-in required">
-                ◌ mock mode
-              </span>
-            ) : null}
             <NavLink to="/signout" className="btn btn-sm btn-ghost">
               Sign out
             </NavLink>

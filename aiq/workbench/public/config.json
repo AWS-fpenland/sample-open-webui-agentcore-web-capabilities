@@ -1,5 +1,4 @@
 {
-  "mock": true,
   "region": "us-east-1",
   "userPoolId": "us-east-1_PLACEHOLDER",
   "clientId": "PLACEHOLDER_WORKBENCH_PKCE_CLIENT_ID",

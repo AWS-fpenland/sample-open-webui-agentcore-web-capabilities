@@ -146,7 +146,6 @@ export class AiqWorkbench extends Construct {
       owuiUrl: props.owuiUrl,
       workbenchUrl: this.url,
       runId: props.runId,
-      mock: false,
     };
     new s3deploy.BucketDeployment(this, 'Deploy', {
       destinationBucket: bucket,

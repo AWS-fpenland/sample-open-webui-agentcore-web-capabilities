@@ -38,12 +38,13 @@ Verify every pattern against current source before reusing it.
   the declared hybrid (Nemotron Nano router/shallow, Nova 2 Lite orchestration, Nemotron
   Super writer) completes with fully verified citations; NIM-kwarg shim; `reasoning_effort`.
 
-Current implementations and operator contracts:
+Current implementations and operator contracts (AI-Q itself has moved to its
+own repository — see [`../AIQ-MOVED.md`](../AIQ-MOVED.md) —
+[`aiq-on-agentcore`](https://github.com/AWS-fpenland/aiq-on-agentcore); the
+guardrail/sandbox/bedrock-compat source below now lives there, not here):
 
-- [`../../infra/lib/aiq-stack.ts`](../../infra/lib/aiq-stack.ts) (guardrail modes, model/budget/sandbox context)
-- [`../../aiq/runtime/src/aiq_agentcore/guardrails.py`](../../aiq/runtime/src/aiq_agentcore/guardrails.py),
-  [`sandbox_agentcore.py`](../../aiq/runtime/src/aiq_agentcore/sandbox_agentcore.py),
-  [`bedrock_compat.py`](../../aiq/runtime/src/aiq_agentcore/bedrock_compat.py)
+- `infra/lib/aiq-stack.ts` (guardrail modes, model/budget/sandbox context) — now in `aiq-on-agentcore`
+- `aiq/runtime/src/aiq_agentcore/{guardrails.py,sandbox_agentcore.py,bedrock_compat.py}` — now in `aiq-on-agentcore`
 - AI-Q operator runbook and ADRs: research package `research/aiq-agentcore-openwebui-20260915/fable51-79d40d45/` (outside this repo)
 
 - [`../../infra/lib/metering-console.ts`](../../infra/lib/metering-console.ts)
